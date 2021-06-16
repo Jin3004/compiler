@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <cassert>
 
 #define Debug(var) std::cout << var
 
@@ -65,12 +66,13 @@ public:
 
 
 //ÉOÉçÅ[ÉoÉãïœêî
-std::string src = "10 + 20 + 30";
+std::string src = "2 * 3 + 4 * 5";
 std::vector<std::string> symbols = { "(", ")", "{", "}", ";", "=", "[", "]", ",", "+", "-", "*", "/", ".", "+=" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
-std::vector<Token> tokens = {};
+std::vector<Token> tokens{};
 std::shared_ptr<Node> root = std::make_shared<Node>();
+std::string assemblyCode = "";
 
 
 namespace Utility {
@@ -154,17 +156,25 @@ void Tokenize() {
 void Parse() {
 
 	int pos = 0; //ç°âΩî‘ñ⁄ÇÃÉgÅ[ÉNÉìÇéQè∆ÇµÇƒÇ¢ÇÈÇÃÇ©ÅB
+	auto Consume = [&](std::string str)->bool {
+		if (pos >= tokens.size())return false;
+		if (tokens[pos].string == str) {
+			++pos;
+			return true;
+		}
+		return false;
+	};
 
 	auto MakeNode = [](NODETYPE type, Ptr<Node> lhs, Ptr<Node> rhs)->Ptr<Node> {
-		Ptr<Node> node{};
+		Ptr<Node> node = std::make_shared<Node>();
 		node->type = type;
 		node->lhs = lhs;
 		node->rhs = rhs;
 		return node;
 	};
 
-	auto MakeLeaf = [](int num)->Ptr<Node> {
-		Ptr<Node> node{};
+	auto MakeNum = [](int num)->Ptr<Node> {
+		Ptr<Node> node = std::make_shared<Node>();
 		node->num = num;
 		node->type = NODETYPE::NUMBER;
 		return node;
@@ -177,30 +187,98 @@ void Parse() {
 	Expr = [&]()->Ptr<Node> {
 		
 		Ptr<Node> node = Mul();
-		
-		bool continue_or_not = (tokens[pos].string == "+") || (tokens[pos].string == "-");
-		while (continue_or_not) {
-			if (tokens[pos].string == "+") {
-				node = MakeNode(NODETYPE::ADD, node, Mul());
-			}
+
+		for (;;) {
+			if (Consume("+"))node = MakeNode(NODETYPE::ADD, node, Mul());
+			else if (Consume("-"))node = MakeNode(NODETYPE::SUB, node, Mul());
+			else return node;
 		}
 
 	};
 
 	Mul = [&]()->Ptr<Node> {
 
+		Ptr<Node> node = Primary();
+
+		for (;;) {
+			if (Consume("*"))node = MakeNode(NODETYPE::MUL, node, Primary());
+			else if (Consume("/"))node = MakeNode(NODETYPE::DIV, node, Primary());
+			else return node;
+		}
+
 	};
 
 	Primary = [&]()->Ptr<Node> {
 
+		if (Consume("(")) {
+			Ptr<Node> node = Expr();
+			assert(Consume(")"));
+			return node;
+		}
+		assert(tokens[pos].type == TOKENTYPE::NUMBER);
+		return MakeNum(std::stoi(tokens[pos++].string)); //ílÇï‘ÇµÇΩÇ†Ç∆Ç…posÇÉCÉìÉNÉäÉÅÉìÉg
+
 	};
+
+	root = Expr();
+
+}
+
+void GenerateAssembly() {
+
+	std::string res = "";
+
+	std::function<void(Ptr<Node>)> recursive = [&](Ptr<Node> node)->void {
+
+		if (node->type == NODETYPE::NUMBER) {
+			std::string tmp = "\tpush " + std::to_string(node->num.value()) + "\n";
+			res += tmp;
+			return;
+		}
+
+		recursive(node->lhs);
+		recursive(node->rhs);
+
+		res += "\tpop rdi\n";
+		res += "\tpop rax\n";
+
+		switch(node->type){
+		case NODETYPE::ADD:
+			res += "\tadd rax, rdi\n";
+			break;
+
+		case NODETYPE::SUB:
+			res += "\tsub rax, rdi\n";
+			break;
+
+		case NODETYPE::MUL:
+			res += "\tmul rax, rdi\n";
+			break;
+
+		case NODETYPE::DIV:
+			res += "\tcqo\n";
+			res += "\tidiv rdi\n";
+			break;
+		}
+
+		res += "\tpush rax\n";
+
+	};
+
+	recursive(root);
+	assemblyCode = res;
 
 }
 
 int main() {
 
 	Tokenize();
+	Parse();
+	GenerateAssembly();
 
+	std::cout << assemblyCode;
+
+	/*
 	auto token_size = tokens.size();
 	for (int i = 0; i < token_size; ++i) {
 		switch (tokens[i].type) {
@@ -228,12 +306,18 @@ int main() {
 		}
 		std::cout << tokens[i].string << '\n';
 	}
+	*/
+
+
 
 }
 
 
 /*
 
-ÅyîıñYò^Åz(ñYÇÍÇ»Ç¢ÇΩÇﬂÇ…)
+ÅyîıñYò^Åz
+expr = mul("+"mul|"-"mul)*
+mul = primary("*"primary|"/"primary)*
+primary = num|"("expr")"
 
 */
