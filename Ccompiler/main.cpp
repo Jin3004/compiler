@@ -4,6 +4,7 @@
 #include <optional>
 #include <vector>
 #include <memory>
+#include <functional>
 
 #define Debug(var) std::cout << var
 
@@ -91,7 +92,6 @@ namespace Utility {
 
 void Tokenize() {
 
-	//int transition = 0;
 	TOKENTYPE transition = TOKENTYPE::NONE;
 	TOKENTYPE prev_transition = transition;
 	int size = src.length();
@@ -153,7 +153,9 @@ void Tokenize() {
 
 void Parse() {
 
-	auto MakeNode = [](NODETYPE type, Ptr<Node> lhs, Ptr<Node> rhs)->Ptr<Node> {	
+	int pos = 0; //今何番目のトークンを参照しているのか。
+
+	auto MakeNode = [](NODETYPE type, Ptr<Node> lhs, Ptr<Node> rhs)->Ptr<Node> {
 		Ptr<Node> node{};
 		node->type = type;
 		node->lhs = lhs;
@@ -168,7 +170,30 @@ void Parse() {
 		return node;
 	};
 
+	
+	//Expr, Mul, Primaryはそれぞれ前方宣言されている必要があるのでstd::functionを使う
+	std::function<Ptr<Node>(void)> Expr, Mul, Primary;
 
+	Expr = [&]()->Ptr<Node> {
+		
+		Ptr<Node> node = Mul();
+		
+		bool continue_or_not = (tokens[pos].string == "+") || (tokens[pos].string == "-");
+		while (continue_or_not) {
+			if (tokens[pos].string == "+") {
+				node = MakeNode(NODETYPE::ADD, node, Mul());
+			}
+		}
+
+	};
+
+	Mul = [&]()->Ptr<Node> {
+
+	};
+
+	Primary = [&]()->Ptr<Node> {
+
+	};
 
 }
 
