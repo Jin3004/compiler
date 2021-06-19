@@ -6,13 +6,15 @@
 #include <memory>
 #include <functional>
 #include <cassert>
+#include <fstream>
+#include "magic_enum/include/magic_enum.hpp"
 
-#define Debug(var) std::cout << var
-
+#define Debug(var) std::cout << var << "\n"
 
 //クラスとかの宣言
 template<class T>
 using Ptr = std::shared_ptr<T>;
+using namespace magic_enum;
 
 enum class TOKENTYPE {
 	NUMBER,
@@ -29,8 +31,6 @@ enum class NODETYPE {
 	SUB,// -
 	MUL,// *
 	DIV,// /
-	GREATER,// >
-	GREATER_OR_EQUAL,// >=
 	LESS,// <
 	LESS_OR_EQUAL,// <=
 	EQUAL,// ==
@@ -72,13 +72,13 @@ public:
 
 
 //グローバル変数
-std::string src = "22 != 10 + 2";
+std::string src = "2 * 3 + 4 * 5";
 std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
 std::shared_ptr<Node> root = std::make_shared<Node>();
-std::string assemblyCode = "";
+std::string assembly_code = "";
 
 
 namespace Utility {
@@ -161,32 +161,10 @@ void Tokenize() {
 
 void TokenizeTest() {
 
-	auto token_size = tokens.size();
+	int token_size = tokens.size();
+
 	for (int i = 0; i < token_size; ++i) {
-		switch (tokens[i].type) {
-		case TOKENTYPE::CHARACTER:
-			std::cout << "CHARACTER: ";
-			break;
-		case TOKENTYPE::IDENTIFIER:
-			std::cout << "IDENTIFIER: ";
-			break;
-		case TOKENTYPE::KEYWORD:
-			std::cout << "KEYWORD: ";
-			break;
-		case TOKENTYPE::NONE:
-			std::cout << "NONE: ";
-			break;
-		case TOKENTYPE::NUMBER:
-			std::cout << "NUMBER: ";
-			break;
-		case TOKENTYPE::STRING:
-			std::cout << "STRING: ";
-			break;
-		case TOKENTYPE::SYMBOL:
-			std::cout << "SYMBOL: ";
-			break;
-		}
-		std::cout << tokens[i].string << '\n';
+		std::cout << enum_name(tokens[i].type) << ": " << tokens[i].string << "\n";
 	}
 
 }
@@ -195,7 +173,7 @@ void Parse() {
 
 	int pos = 0; //今何番目のトークンを参照しているのか。
 	auto Consume = [&](std::string str)->bool {
-		if (pos >= tokens.size())return false;
+		if (pos >= (int)tokens.size())return false;
 		if (tokens[pos].string == str) {
 			++pos;
 			return true;
@@ -243,10 +221,10 @@ void Parse() {
 		Ptr<Node> node = Add();
 
 		for (;;) {
-			if (Consume(">"))node = MakeNode(NODETYPE::GREATER, node, Add());
-			else if (Consume(">="))node = MakeNode(NODETYPE::GREATER_OR_EQUAL, node, Add());
-			else if (Consume("<"))node = MakeNode(NODETYPE::LESS, node, Add());
+			if (Consume("<"))node = MakeNode(NODETYPE::LESS, node, Add());
 			else if (Consume("<="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, node, Add());
+			else if (Consume(">"))node = MakeNode(NODETYPE::LESS, Add(), node);
+			else if (Consume(">="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, Add(), node);
 			else return node;
 		}
 
@@ -302,13 +280,14 @@ void Parse() {
 
 void ParseTest() {
 
-
+	//assert(root->type == NODETYPE::NOT_EQUAL);
+	Debug(root->lhs->num.value());
 
 }
 
 void GenerateAssembly() {
 
-	std::string res = "";
+	std::string res = ".intel_syntax noprefix\n.global main\nmain:\n";
 
 	std::function<void(Ptr<Node>)> recursive = [&](Ptr<Node> node)->void {
 
@@ -348,7 +327,19 @@ void GenerateAssembly() {
 	};
 
 	recursive(root);
-	assemblyCode = res;
+
+	res += "\tpop rax\n";
+	res += "\tret\n";
+
+	assembly_code = res;
+
+}
+
+void CompileAssembly() {
+
+	std::ofstream assembly_file{ "result.s" };
+	assembly_file << assembly_code;
+	assembly_file.close();
 
 }
 
@@ -357,7 +348,9 @@ int main() {
 	Tokenize();
 	//TokenizeTest();
 	Parse();
-	//GenerateAssembly();
+	//ParseTest();
+	GenerateAssembly();
+	CompileAssembly();
 
 	//std::cout << assemblyCode;
 
