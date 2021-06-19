@@ -36,6 +36,8 @@ enum class NODETYPE {
 	LESS_OR_EQUAL,// <=
 	EQUAL,// ==
 	NOT_EQUAL,// !=
+	ASSIGN,// =
+	LOCAL_VAR,
 	NUMBER,
 	NONE
 };
@@ -60,13 +62,15 @@ public:
 	NODETYPE type;
 	Ptr<Node> rhs;
 	Ptr<Node> lhs;
-	std::optional<int> num; //葉ノードの場合には数字を持つ
+	std::optional<int> num; //葉ノードが整数の場合には数字を持つ
+	std::optional<int> offset; //葉ノードがローカル変数のときにはオフセットを持つ
 
 	Node() {
 		type = NODETYPE::NONE;
 		rhs = nullptr;
 		lhs = nullptr;
 		num = std::nullopt;
+		offset = std::nullopt;
 	}
 
 };
@@ -74,11 +78,11 @@ public:
 
 //グローバル変数
 std::string src = "20 == 1 + 3 * 6 + 1";
-std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=" };
+std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
-std::shared_ptr<Node> root = std::make_shared<Node>();
+std::vector<Ptr<Node>> program;
 std::string assembly_code = "";
 
 
@@ -188,9 +192,9 @@ void TokenizeTest() {
 
 void Parse() {
 
-	int pos = 0; //今何番目のトークンを参照しているのか。
+	size_t pos = 0; //今何番目のトークンを参照しているのか。
 	auto Consume = [&](std::string str)->bool {
-		if (pos >= (int)tokens.size())return false;
+		if (pos >= tokens.size())return false;
 		if (tokens[pos].string == str) {
 			++pos;
 			return true;
@@ -215,10 +219,30 @@ void Parse() {
 
 
 	//以下はそれぞれ前方宣言されている必要があるのでstd::functionを使う
-	std::function<Ptr<Node>(void)> Expr, Equality, Relational, Add, Mul, Unary, Primary;
+	std::function<Ptr<Node>(void)> Statement, Expr, Assign, Equality, Relational, Add, Mul, Unary, Primary;
+
+	Statement = [&]()->Ptr<Node> {
+	
+		Ptr<Node> node = Expr();
+		assert(Consume(";"));
+
+		return node;
+
+	};
 
 	Expr = [&]()->Ptr<Node> {
 		return Equality();
+	};
+
+	Assign = [&]()->Ptr<Node> {
+
+		Ptr<Node> node = Equality();
+
+		for (;;) {
+			if (Consume("="))node = MakeNode(NODETYPE::ASSIGN, node, Equality());
+			else return node;
+		}
+
 	};
 
 	Equality = [&]()->Ptr<Node> {
@@ -291,7 +315,13 @@ void Parse() {
 
 	};
 
-	root = Expr();
+	auto Program = [&]()->void {
+
+		while (pos < tokens.size()) {
+			Ptr<Node> tmp = Statement();
+			program.push_back(tmp);
+		}
+	};
 
 }
 
@@ -413,7 +443,10 @@ int main() {
 /*
 
 【備忘録】
-expr       = equality
+program    = statement*
+statement  = expr ";"
+expr       = assign
+assign     = equality ("=" equality)*
 equality   = relational ("==" relational | "!=" relational)*
 relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 add        = mul ("+" mul | "-" mul)*
