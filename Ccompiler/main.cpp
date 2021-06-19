@@ -25,10 +25,16 @@ enum class TOKENTYPE {
 };
 
 enum class NODETYPE {
-	ADD,
-	SUB,
-	MUL,
-	DIV,
+	ADD, // +
+	SUB,// -
+	MUL,// *
+	DIV,// /
+	GREATER,// >
+	GREATER_OR_EQUAL,// >=
+	LESS,// <
+	LESS_OR_EQUAL,// <=
+	EQUAL,// ==
+	NOT_EQUAL,// !=
 	NUMBER,
 	NONE
 };
@@ -66,8 +72,8 @@ public:
 
 
 //グローバル変数
-std::string src = "2 * 3 + 4 * 5";
-std::vector<std::string> symbols = { "(", ")", "{", "}", ";", "=", "[", "]", ",", "+", "-", "*", "/", ".", "+=" };
+std::string src = "22 != 10 + 2";
+std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
@@ -153,6 +159,38 @@ void Tokenize() {
 
 }
 
+void TokenizeTest() {
+
+	auto token_size = tokens.size();
+	for (int i = 0; i < token_size; ++i) {
+		switch (tokens[i].type) {
+		case TOKENTYPE::CHARACTER:
+			std::cout << "CHARACTER: ";
+			break;
+		case TOKENTYPE::IDENTIFIER:
+			std::cout << "IDENTIFIER: ";
+			break;
+		case TOKENTYPE::KEYWORD:
+			std::cout << "KEYWORD: ";
+			break;
+		case TOKENTYPE::NONE:
+			std::cout << "NONE: ";
+			break;
+		case TOKENTYPE::NUMBER:
+			std::cout << "NUMBER: ";
+			break;
+		case TOKENTYPE::STRING:
+			std::cout << "STRING: ";
+			break;
+		case TOKENTYPE::SYMBOL:
+			std::cout << "SYMBOL: ";
+			break;
+		}
+		std::cout << tokens[i].string << '\n';
+	}
+
+}
+
 void Parse() {
 
 	int pos = 0; //今何番目のトークンを参照しているのか。
@@ -180,12 +218,42 @@ void Parse() {
 		return node;
 	};
 
-	
-	//Expr, Mul, Primaryはそれぞれ前方宣言されている必要があるのでstd::functionを使う
-	std::function<Ptr<Node>(void)> Expr, Mul, Primary;
+
+	//以下はそれぞれ前方宣言されている必要があるのでstd::functionを使う
+	std::function<Ptr<Node>(void)> Expr, Equality, Relational, Add, Mul, Unary, Primary;
 
 	Expr = [&]()->Ptr<Node> {
-		
+		return Equality();
+	};
+
+	Equality = [&]()->Ptr<Node> {
+
+		Ptr<Node> node = Relational();
+
+		for (;;) {
+			if (Consume("=="))node = MakeNode(NODETYPE::EQUAL, node, Relational());
+			else if (Consume("!="))node = MakeNode(NODETYPE::NOT_EQUAL, node, Relational());
+			else return node;
+		}
+
+	};
+
+	Relational = [&]()->Ptr<Node> {
+
+		Ptr<Node> node = Add();
+
+		for (;;) {
+			if (Consume(">"))node = MakeNode(NODETYPE::GREATER, node, Add());
+			else if (Consume(">="))node = MakeNode(NODETYPE::GREATER_OR_EQUAL, node, Add());
+			else if (Consume("<"))node = MakeNode(NODETYPE::LESS, node, Add());
+			else if (Consume("<="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, node, Add());
+			else return node;
+		}
+
+	};
+
+	Add = [&]()->Ptr<Node> {
+
 		Ptr<Node> node = Mul();
 
 		for (;;) {
@@ -201,10 +269,18 @@ void Parse() {
 		Ptr<Node> node = Primary();
 
 		for (;;) {
-			if (Consume("*"))node = MakeNode(NODETYPE::MUL, node, Primary());
-			else if (Consume("/"))node = MakeNode(NODETYPE::DIV, node, Primary());
+			if (Consume("*"))node = MakeNode(NODETYPE::MUL, node, Unary());
+			else if (Consume("/"))node = MakeNode(NODETYPE::DIV, node, Unary());
 			else return node;
 		}
+
+	};
+
+	Unary = [&]()->Ptr<Node> {
+
+		if (Consume("+"))return Primary();
+		if (Consume("-"))return MakeNode(NODETYPE::SUB, MakeNum(0), Primary());
+		return Primary();
 
 	};
 
@@ -221,6 +297,12 @@ void Parse() {
 	};
 
 	root = Expr();
+
+}
+
+void ParseTest() {
+
+
 
 }
 
@@ -242,7 +324,7 @@ void GenerateAssembly() {
 		res += "\tpop rdi\n";
 		res += "\tpop rax\n";
 
-		switch(node->type){
+		switch (node->type) {
 		case NODETYPE::ADD:
 			res += "\tadd rax, rdi\n";
 			break;
@@ -273,41 +355,11 @@ void GenerateAssembly() {
 int main() {
 
 	Tokenize();
+	//TokenizeTest();
 	Parse();
-	GenerateAssembly();
+	//GenerateAssembly();
 
-	std::cout << assemblyCode;
-
-	/*
-	auto token_size = tokens.size();
-	for (int i = 0; i < token_size; ++i) {
-		switch (tokens[i].type) {
-		case TOKENTYPE::CHARACTER:
-			std::cout << "CHARACTER: ";
-			break;
-		case TOKENTYPE::IDENTIFIER:
-			std::cout << "IDENTIFIER: ";
-			break;
-		case TOKENTYPE::KEYWORD:
-			std::cout << "KEYWORD: ";
-			break;
-		case TOKENTYPE::NONE:
-			std::cout << "NONE: ";
-			break;
-		case TOKENTYPE::NUMBER:
-			std::cout << "NUMBER: ";
-			break;
-		case TOKENTYPE::STRING:
-			std::cout << "STRING: ";
-			break;
-		case TOKENTYPE::SYMBOL:
-			std::cout << "SYMBOL: ";
-			break;
-		}
-		std::cout << tokens[i].string << '\n';
-	}
-	*/
-
+	//std::cout << assemblyCode;
 
 
 }
@@ -316,8 +368,12 @@ int main() {
 /*
 
 【備忘録】
-expr = mul("+"mul|"-"mul)*
-mul = primary("*"primary|"/"primary)*
-primary = num|"("expr")"
+expr       = equality
+equality   = relational ("==" relational | "!=" relational)*
+relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+add        = mul ("+" mul | "-" mul)*
+mul        = unary ("*" unary | "/" unary)*
+unary      = ("+" | "-")? primary
+primary    = num | "(" expr ")"
 
 */
