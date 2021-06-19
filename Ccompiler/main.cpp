@@ -73,8 +73,8 @@ public:
 
 
 //グローバル変数
-std::string src = "1 * 2 +	3 * 4 * 5";
-std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!" };
+std::string src = "20 == 1 + 3 * 6 + 1";
+std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
@@ -85,16 +85,12 @@ std::string assembly_code = "";
 namespace Utility {
 
 	template<typename T = char, typename U = std::vector<char>>
-	bool fullSearch(T obj, U& container) {
-		int size = std::size(container);
-		for (int i = 0; i < size; ++i) {
+	bool FullSearch(T obj, U& container) {
+		size_t size = std::size(container);
+		for (size_t i = 0; i < size; ++i) {
 			if (obj == container[i])return true;
 		}
 		return false;
-	}
-
-	void debug(DEBUGTYPE state, const char* msg) {
-		if (state == DEBUGTYPE::ERROR)std::cout << "[ERROR]: " << msg << '\n';
 	}
 
 	//完全二分木の描画 PrintBinaryTree(root, 0)で使う
@@ -104,9 +100,9 @@ namespace Utility {
 		if (node == nullptr)return;
 
 		space += COUNT;
-		
+
 		PrintBinaryTree(node->rhs, space);
-		
+
 		std::cout << "\n";
 		for (int i = COUNT; i < space; ++i)std::cout << " ";
 
@@ -123,7 +119,7 @@ void Tokenize() {
 
 	TOKENTYPE transition = TOKENTYPE::NONE;
 	TOKENTYPE prev_transition = transition;
-	int size = src.length();
+	size_t size = src.length();
 	src += ' ';
 	std::string tmp_string = "";
 
@@ -135,7 +131,7 @@ void Tokenize() {
 		tmp_string = "";
 	};
 
-	for (int pos = 0; pos < size; ++pos) {
+	for (size_t pos = 0; pos < size; ++pos) {
 
 		char cur = src[pos];
 		char next = src[pos + 1];
@@ -143,13 +139,13 @@ void Tokenize() {
 
 		if (transition == TOKENTYPE::NONE) {
 
-			if (Utility::fullSearch(cur, white_space))continue;
+			if (Utility::FullSearch(cur, white_space))continue;
 
 			if ('0' <= cur && cur <= '9')transition = TOKENTYPE::NUMBER;
 			else if (cur == '\'')transition = TOKENTYPE::CHARACTER;
 			else if (cur == '\"')transition = TOKENTYPE::STRING;
 			else if (('a' <= cur && cur <= 'z') || ('A' <= cur && cur <= 'Z') || (cur == '_'))transition = TOKENTYPE::IDENTIFIER;
-			else  if (Utility::fullSearch(std::string{} +cur, symbols)) {
+			else  if (Utility::FullSearch(std::string{} +cur, symbols)) {
 				transition = TOKENTYPE::SYMBOL;
 			}
 
@@ -167,7 +163,7 @@ void Tokenize() {
 			if (!whether_to_continue)will_make_token = true;
 		}
 		if (transition == TOKENTYPE::SYMBOL) {
-			if (!Utility::fullSearch(tmp_string + next, symbols))will_make_token = true;
+			if (!Utility::FullSearch(tmp_string + next, symbols))will_make_token = true;
 		}
 
 		if (will_make_token) {
@@ -182,9 +178,9 @@ void Tokenize() {
 
 void TokenizeTest() {
 
-	int token_size = tokens.size();
+	size_t token_size = tokens.size();
 
-	for (int i = 0; i < token_size; ++i) {
+	for (size_t i = 0; i < token_size; ++i) {
 		std::cout << enum_name(tokens[i].type) << ": " << tokens[i].string << "\n";
 	}
 
@@ -325,24 +321,49 @@ void GenerateAssembly() {
 
 		switch (node->type) {
 		case NODETYPE::ADD:
-			res += "\tadd rax, rdi\n";
+			res += "\tadd rax, rdi\n\n";
 			break;
 
 		case NODETYPE::SUB:
-			res += "\tsub rax, rdi\n";
+			res += "\tsub rax, rdi\n\n";
 			break;
 
 		case NODETYPE::MUL:
-			res += "\timul rax, rdi\n";
+			res += "\timul rax, rdi\n\n";
 			break;
 
 		case NODETYPE::DIV:
 			res += "\tcqo\n";
-			res += "\tidiv rdi\n";
+			res += "\tidiv rdi\n\n";
 			break;
+
+		case NODETYPE::EQUAL:
+			res += "\tcmp rax, rdi\n";
+			res += "\tsete al\n";
+			res += "\tmovzb rax, al\n\n";
+			break;
+
+		case NODETYPE::NOT_EQUAL:
+			res += "\tcmp rax, rdi\n";
+			res += "\tsetne al\n";
+			res += "\tmovzb rax, al\n\n";
+			break;
+
+		case NODETYPE::LESS:
+			res += "\tcmp rax, rdi\n";
+			res += "\tsetl al\n";
+			res += "\tmovzb rax, al\n\n";
+			break;
+
+		case NODETYPE::LESS_OR_EQUAL:
+			res += "\tcmp rax, rdi\n";
+			res += "\tsetle al\n";
+			res += "\tmovzb rax, al\n\n";
+			break;
+
 		}
 
-		res += "\tpush rax\n";
+		res += "\tpush rax\n\n";
 
 	};
 
@@ -356,12 +377,21 @@ void GenerateAssembly() {
 
 void Assemble() {
 
+	//出力されたアセンブリコードをresult.sに保存する
 	std::ofstream assembly_file{ "result.s" };
 	assembly_file << assembly_code;
 	assembly_file.close();
 
+	//result.sをバイナリファイルに変換する
+	int res = system("wsl cc -o result result.s");
+	if (res != 0)Debug("Assembling didn't go well.\n");
 
+}
 
+//生成された実行ファイルを実行し、終了コードを返す
+int Run() {
+	int res = system("wsl ./result");
+	return res;
 }
 
 int main() {
@@ -371,10 +401,11 @@ int main() {
 	Parse();
 	//ParseTest();
 	GenerateAssembly();
+
+	//std::cout << assembly_code << "\n";
+
 	Assemble();
-
-	//std::cout << assemblyCode;
-
+	std::cout << Run();
 
 }
 
