@@ -73,7 +73,7 @@ public:
 
 
 //グローバル変数
-std::string src = "2 * 3 + 4 * 5";
+std::string src = "1 * 2 +	3 * 4 * 5";
 std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
@@ -95,6 +95,26 @@ namespace Utility {
 
 	void debug(DEBUGTYPE state, const char* msg) {
 		if (state == DEBUGTYPE::ERROR)std::cout << "[ERROR]: " << msg << '\n';
+	}
+
+	//完全二分木の描画 PrintBinaryTree(root, 0)で使う
+	void PrintBinaryTree(Ptr<Node> node, int space) {
+
+		constexpr int COUNT = 7;
+		if (node == nullptr)return;
+
+		space += COUNT;
+		
+		PrintBinaryTree(node->rhs, space);
+		
+		std::cout << "\n";
+		for (int i = COUNT; i < space; ++i)std::cout << " ";
+
+		if (node->type == NODETYPE::NUMBER)std::cout << node->num.value() << "\n";
+		else std::cout << enum_name(node->type) << "\n";
+
+		PrintBinaryTree(node->lhs, space);
+
 	}
 
 }
@@ -281,8 +301,7 @@ void Parse() {
 
 void ParseTest() {
 
-	//assert(root->type == NODETYPE::NOT_EQUAL);
-	Debug(root->lhs->num.value());
+	Utility::PrintBinaryTree(root, 0); //抽象構文木の出力
 
 }
 
@@ -336,7 +355,7 @@ void GenerateAssembly() {
 
 }
 
-void CompileAssembly() {
+void Assemble() {
 
 	std::ofstream assembly_file{ "result.s" };
 	assembly_file << assembly_code;
@@ -353,7 +372,7 @@ int main() {
 	Parse();
 	//ParseTest();
 	GenerateAssembly();
-	CompileAssembly();
+	Assemble();
 
 	//std::cout << assemblyCode;
 
