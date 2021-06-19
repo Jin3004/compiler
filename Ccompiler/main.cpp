@@ -7,6 +7,7 @@
 #include <functional>
 #include <cassert>
 #include <fstream>
+#include <stdlib.h>
 #include "magic_enum/include/magic_enum.hpp"
 
 #define Debug(var) std::cout << var << "\n"
@@ -313,7 +314,7 @@ void GenerateAssembly() {
 			break;
 
 		case NODETYPE::MUL:
-			res += "\tmul rax, rdi\n";
+			res += "\timul rax, rdi\n";
 			break;
 
 		case NODETYPE::DIV:
@@ -340,6 +341,8 @@ void CompileAssembly() {
 	std::ofstream assembly_file{ "result.s" };
 	assembly_file << assembly_code;
 	assembly_file.close();
+
+
 
 }
 
