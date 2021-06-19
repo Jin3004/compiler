@@ -77,7 +77,7 @@ public:
 
 
 //グローバル変数
-std::string src = "20 == 1 + 3 * 6 + 1";
+std::string src = "a = 12; b = 24;";
 std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
@@ -193,9 +193,18 @@ void TokenizeTest() {
 void Parse() {
 
 	size_t pos = 0; //今何番目のトークンを参照しているのか。
-	auto Consume = [&](std::string str)->bool {
+	auto ConsumeByString = [&](std::string str)->bool {
 		if (pos >= tokens.size())return false;
 		if (tokens[pos].string == str) {
+			++pos;
+			return true;
+		}
+		return false;
+	};
+
+	auto ConsumeByType = [&](TOKENTYPE type)->bool {
+		if (pos >= tokens.size())return false;
+		if (tokens[pos].type == type) {
 			++pos;
 			return true;
 		}
@@ -217,6 +226,13 @@ void Parse() {
 		return node;
 	};
 
+	auto MakeLocalVar = [](std::string identifier)->Ptr<Node> {
+		Ptr<Node> node = std::make_shared<Node>();
+		node->offset = ((int)(identifier[0] - 'a') + 1) * 8;
+		node->type = NODETYPE::LOCAL_VAR;
+		return node;
+	};
+
 
 	//以下はそれぞれ前方宣言されている必要があるのでstd::functionを使う
 	std::function<Ptr<Node>(void)> Statement, Expr, Assign, Equality, Relational, Add, Mul, Unary, Primary;
@@ -224,14 +240,14 @@ void Parse() {
 	Statement = [&]()->Ptr<Node> {
 	
 		Ptr<Node> node = Expr();
-		assert(Consume(";"));
+		assert(ConsumeByString(";"));
 
 		return node;
 
 	};
 
 	Expr = [&]()->Ptr<Node> {
-		return Equality();
+		return Assign();
 	};
 
 	Assign = [&]()->Ptr<Node> {
@@ -239,7 +255,7 @@ void Parse() {
 		Ptr<Node> node = Equality();
 
 		for (;;) {
-			if (Consume("="))node = MakeNode(NODETYPE::ASSIGN, node, Equality());
+			if (ConsumeByString("="))node = MakeNode(NODETYPE::ASSIGN, node, Equality());
 			else return node;
 		}
 
@@ -250,8 +266,8 @@ void Parse() {
 		Ptr<Node> node = Relational();
 
 		for (;;) {
-			if (Consume("=="))node = MakeNode(NODETYPE::EQUAL, node, Relational());
-			else if (Consume("!="))node = MakeNode(NODETYPE::NOT_EQUAL, node, Relational());
+			if (ConsumeByString("=="))node = MakeNode(NODETYPE::EQUAL, node, Relational());
+			else if (ConsumeByString("!="))node = MakeNode(NODETYPE::NOT_EQUAL, node, Relational());
 			else return node;
 		}
 
@@ -262,10 +278,10 @@ void Parse() {
 		Ptr<Node> node = Add();
 
 		for (;;) {
-			if (Consume("<"))node = MakeNode(NODETYPE::LESS, node, Add());
-			else if (Consume("<="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, node, Add());
-			else if (Consume(">"))node = MakeNode(NODETYPE::LESS, Add(), node);
-			else if (Consume(">="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, Add(), node);
+			if (ConsumeByString("<"))node = MakeNode(NODETYPE::LESS, node, Add());
+			else if (ConsumeByString("<="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, node, Add());
+			else if (ConsumeByString(">"))node = MakeNode(NODETYPE::LESS, Add(), node);
+			else if (ConsumeByString(">="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, Add(), node);
 			else return node;
 		}
 
@@ -276,8 +292,8 @@ void Parse() {
 		Ptr<Node> node = Mul();
 
 		for (;;) {
-			if (Consume("+"))node = MakeNode(NODETYPE::ADD, node, Mul());
-			else if (Consume("-"))node = MakeNode(NODETYPE::SUB, node, Mul());
+			if (ConsumeByString("+"))node = MakeNode(NODETYPE::ADD, node, Mul());
+			else if (ConsumeByString("-"))node = MakeNode(NODETYPE::SUB, node, Mul());
 			else return node;
 		}
 
@@ -288,8 +304,8 @@ void Parse() {
 		Ptr<Node> node = Primary();
 
 		for (;;) {
-			if (Consume("*"))node = MakeNode(NODETYPE::MUL, node, Unary());
-			else if (Consume("/"))node = MakeNode(NODETYPE::DIV, node, Unary());
+			if (ConsumeByString("*"))node = MakeNode(NODETYPE::MUL, node, Unary());
+			else if (ConsumeByString("/"))node = MakeNode(NODETYPE::DIV, node, Unary());
 			else return node;
 		}
 
@@ -297,19 +313,24 @@ void Parse() {
 
 	Unary = [&]()->Ptr<Node> {
 
-		if (Consume("+"))return Primary();
-		if (Consume("-"))return MakeNode(NODETYPE::SUB, MakeNum(0), Primary());
+		if (ConsumeByString("+"))return Primary();
+		if (ConsumeByString("-"))return MakeNode(NODETYPE::SUB, MakeNum(0), Primary());
 		return Primary();
 
 	};
 
 	Primary = [&]()->Ptr<Node> {
 
-		if (Consume("(")) {
+		if (ConsumeByString("(")) {
 			Ptr<Node> node = Expr();
-			assert(Consume(")"));
+			assert(ConsumeByString(")"));
 			return node;
 		}
+
+		if (tokens[pos].type == TOKENTYPE::IDENTIFIER) {
+			return MakeLocalVar(tokens[pos++].string);
+		}
+
 		assert(tokens[pos].type == TOKENTYPE::NUMBER);
 		return MakeNum(std::stoi(tokens[pos++].string)); //値を返したあとにposをインクリメント
 
@@ -323,11 +344,13 @@ void Parse() {
 		}
 	};
 
+	Program();
+
 }
 
 void ParseTest() {
 
-	Utility::PrintBinaryTree(root, 0); //抽象構文木の出力
+	Utility::PrintBinaryTree(program[1], 0); //抽象構文木の出力
 
 }
 
@@ -397,7 +420,7 @@ void GenerateAssembly() {
 
 	};
 
-	recursive(root);
+	recursive(program[0]);
 
 	res += "\tpop rax\n";
 	res += "\tret\n";
@@ -429,13 +452,11 @@ int main() {
 	Tokenize();
 	//TokenizeTest();
 	Parse();
-	//ParseTest();
-	GenerateAssembly();
+	ParseTest();
+	//GenerateAssembly();
 
-	//std::cout << assembly_code << "\n";
-
-	Assemble();
-	std::cout << Run();
+	//Assemble();
+	//std::cout << Run();
 
 }
 
@@ -452,6 +473,6 @@ relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 add        = mul ("+" mul | "-" mul)*
 mul        = unary ("*" unary | "/" unary)*
 unary      = ("+" | "-")? primary
-primary    = num | "(" expr ")"
+primary    = num | identifier | "(" expr ")"
 
 */
