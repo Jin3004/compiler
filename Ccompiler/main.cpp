@@ -352,7 +352,6 @@ void GenerateAssembly() {
 	res += "\tret\n";
 
 	assembly_code = res;
-
 }
 
 void Assemble() {
