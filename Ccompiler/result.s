@@ -25,7 +25,21 @@ main:
 	sub rax, 16
 	push rax
 
-	push 24
+	push 2
+	push 7
+	pop rdi
+	pop rax
+	imul rax, rdi
+
+	push rax
+
+	push 2
+	pop rdi
+	pop rax
+	add rax, rdi
+
+	push rax
+
 	pop rdi
 	pop rax
 	mov [rax], rdi

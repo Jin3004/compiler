@@ -8,6 +8,8 @@
 #include <cassert>
 #include <fstream>
 #include <stdlib.h>
+#include <list>
+#include <algorithm>
 #include "magic_enum/include/magic_enum.hpp"
 
 #define Debug(var) std::cout << var << "\n"
@@ -75,15 +77,22 @@ public:
 
 };
 
+class LocalVar {
+public:
+	std::string name = ""; //変数名
+	int offset = 0; //RBPからのオフセット
+};
+
 
 //グローバル変数
-std::string src = "a = 12; b = 24;";
+std::string src = "hoge = 12; fuga = 2 * 7 + 2;";
 std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";" };
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
 std::vector<Ptr<Node>> statements;
 std::string assembly_code = "";
+std::list<LocalVar> local_vars;
 
 
 namespace Utility {
@@ -226,11 +235,36 @@ void Parse() {
 		return node;
 	};
 
-	auto MakeLocalVar = [](std::string identifier)->Ptr<Node> {
+	auto MakeLocalVar = [&](std::string identifier)->Ptr<Node> {
+
 		Ptr<Node> node = std::make_shared<Node>();
-		node->offset = ((int)(identifier[0] - 'a') + 1) * 8;
+
+		//既にこの変数が登録されているかどうかを調べる
+		auto find_res = std::find_if(local_vars.begin(), local_vars.end(), [&](LocalVar var) {return var.name == identifier; });
+
+		if (find_res == local_vars.end()) {
+			
+			//新しくこの変数をlocal_varsに追加する
+			LocalVar tmp;
+			tmp.name = identifier;
+			//最初に登録する変数のオフセットは8bytes
+			if (local_vars.size() == 0) {
+				tmp.offset = 8;
+			}
+			else {
+				tmp.offset = local_vars.back().offset + 8;
+			}
+			node->offset = tmp.offset;
+			local_vars.push_back(tmp);
+
+		}
+		else {
+			node->offset = find_res->offset;
+		}
+
 		node->type = NODETYPE::LOCAL_VAR;
 		return node;
+
 	};
 
 
@@ -238,7 +272,7 @@ void Parse() {
 	std::function<Ptr<Node>(void)> Statement, Expr, Assign, Equality, Relational, Add, Mul, Unary, Primary;
 
 	Statement = [&]()->Ptr<Node> {
-	
+
 		Ptr<Node> node = Expr();
 		assert(ConsumeByString(";"));
 
@@ -361,9 +395,10 @@ void GenerateAssembly() {
 	res += "#Prologue\n";
 	res += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, 208\n\n\n\n\n";
 
+
 	//ノードが変数の場合、その変数のアドレスをプッシュする
 	auto ReferToVar = [&](Ptr<Node> node)->void {
-		
+
 		assert(node->type == NODETYPE::LOCAL_VAR);
 
 		res += "\tmov rax, rbp\n";
@@ -374,6 +409,8 @@ void GenerateAssembly() {
 
 	};
 
+
+
 	std::function<void(Ptr<Node>)> Recursive = [&](Ptr<Node> node)->void {
 
 		switch (node->type) {
@@ -382,7 +419,7 @@ void GenerateAssembly() {
 			res += std::to_string(node->num.value());
 			res += "\n";
 			return;
-			
+
 		case NODETYPE::LOCAL_VAR:
 			ReferToVar(node);
 			//右辺値として変数が用いられる場合には、値をロードする
@@ -499,7 +536,7 @@ int main() {
 	Parse();
 	//ParseTest();
 	GenerateAssembly();
-	GenerateAssemblyTest();
+	//GenerateAssemblyTest();
 	Assemble();
 	std::cout << Run();
 
