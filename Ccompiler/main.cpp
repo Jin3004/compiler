@@ -82,7 +82,7 @@ std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "
 std::vector<std::string> keywords = { "int", "for" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
-std::vector<Ptr<Node>> program;
+std::vector<Ptr<Node>> statements;
 std::string assembly_code = "";
 
 
@@ -340,7 +340,7 @@ void Parse() {
 
 		while (pos < tokens.size()) {
 			Ptr<Node> tmp = Statement();
-			program.push_back(tmp);
+			statements.push_back(tmp);
 		}
 	};
 
@@ -350,7 +350,7 @@ void Parse() {
 
 void ParseTest() {
 
-	Utility::PrintBinaryTree(program[1], 0); //抽象構文木の出力
+	Utility::PrintBinaryTree(statements[1], 0); //抽象構文木の出力
 
 }
 
@@ -358,16 +358,52 @@ void GenerateAssembly() {
 
 	std::string res = ".intel_syntax noprefix\n.global main\nmain:\n";
 
-	std::function<void(Ptr<Node>)> recursive = [&](Ptr<Node> node)->void {
+	res += "#Prologue\n";
+	res += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, 208\n\n\n\n\n";
 
-		if (node->type == NODETYPE::NUMBER) {
-			std::string tmp = "\tpush " + std::to_string(node->num.value()) + "\n";
-			res += tmp;
+	//ノードが変数の場合、その変数のアドレスをプッシュする
+	auto ReferToVar = [&](Ptr<Node> node)->void {
+		
+		assert(node->type == NODETYPE::LOCAL_VAR);
+
+		res += "\tmov rax, rbp\n";
+		res += "\tsub rax, ";
+		res += std::to_string(node->offset.value());
+		res += "\n";
+		res += "\tpush rax\n\n";
+
+	};
+
+	std::function<void(Ptr<Node>)> Recursive = [&](Ptr<Node> node)->void {
+
+		switch (node->type) {
+		case NODETYPE::NUMBER:
+			res += "\tpush ";
+			res += std::to_string(node->num.value());
+			res += "\n";
+			return;
+			
+		case NODETYPE::LOCAL_VAR:
+			ReferToVar(node);
+			//右辺値として変数が用いられる場合には、値をロードする
+			res += "\tpop rax\n";
+			res += "\tmov rax, [rax]\n";
+			res += "\tpush rax\n\n";
+			return;
+
+		case NODETYPE::ASSIGN:
+			ReferToVar(node->lhs);
+			Recursive(node->rhs);
+			//上の段階で変数のメモリアドレスと右辺値がプッシュされている
+			res += "\tpop rdi\n";
+			res += "\tpop rax\n";
+			res += "\tmov [rax], rdi\n";
+			res += "\tpush rdi\n\n";
 			return;
 		}
 
-		recursive(node->lhs);
-		recursive(node->rhs);
+		Recursive(node->lhs);
+		Recursive(node->rhs);
 
 		res += "\tpop rdi\n";
 		res += "\tpop rax\n";
@@ -420,12 +456,21 @@ void GenerateAssembly() {
 
 	};
 
-	recursive(program[0]);
+	size_t statement_num = statements.size();
+	for (size_t i = 0; i < statement_num; ++i) {
+		Recursive(statements[i]);
+		res += "\tpop rax\n\n";
+	}
 
-	res += "\tpop rax\n";
+	res += "\tmov rsp, rbp\n";
+	res += "\tpop rbp\n";
 	res += "\tret\n";
 
 	assembly_code = res;
+}
+
+void GenerateAssemblyTest() {
+	Debug(assembly_code);
 }
 
 void Assemble() {
@@ -452,11 +497,11 @@ int main() {
 	Tokenize();
 	//TokenizeTest();
 	Parse();
-	ParseTest();
-	//GenerateAssembly();
-
-	//Assemble();
-	//std::cout << Run();
+	//ParseTest();
+	GenerateAssembly();
+	GenerateAssemblyTest();
+	Assemble();
+	std::cout << Run();
 
 }
 
