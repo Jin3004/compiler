@@ -39,6 +39,7 @@ enum class NODETYPE {
 	EQUAL,// ==
 	NOT_EQUAL,// !=
 	ASSIGN,// =
+	RETURN,// return
 	LOCAL_VAR,
 	NUMBER,
 	NONE
@@ -85,9 +86,9 @@ public:
 
 
 //グローバル変数
-std::string src = "hoge = 12; fuga = 2 * 7 + 2;";
+std::string src = "hoge = 3; fuga = hoge * 4; return fuga;";
 std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";" };
-std::vector<std::string> keywords = { "int", "for" };
+std::vector<std::string> keywords = { "int", "for", "return" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
 std::vector<Ptr<Node>> statements;
@@ -273,9 +274,15 @@ void Parse() {
 
 	Statement = [&]()->Ptr<Node> {
 
-		Ptr<Node> node = Expr();
-		assert(ConsumeByString(";"));
+		Ptr<Node> node = nullptr;
+		if (ConsumeByString("return")) {
+			node = std::make_shared<Node>();
+			node->type = NODETYPE::RETURN;
+			node->rhs = Expr();
+		}
+		else node = Expr();
 
+		assert(ConsumeByString(";"));
 		return node;
 
 	};
@@ -393,7 +400,9 @@ void GenerateAssembly() {
 	std::string res = ".intel_syntax noprefix\n.global main\nmain:\n";
 
 	res += "#Prologue\n";
-	res += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, 208\n\n\n\n\n";
+	res += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, ";
+	res += std::to_string(local_vars.size() * 8);
+	res += "\n\n\n\n";
 
 
 	//ノードが変数の場合、その変数のアドレスをプッシュする
@@ -436,6 +445,14 @@ void GenerateAssembly() {
 			res += "\tpop rax\n";
 			res += "\tmov [rax], rdi\n";
 			res += "\tpush rdi\n\n";
+			return;
+
+		case NODETYPE::RETURN:
+			Recursive(node->rhs);
+			res += "\tpop rax\n";
+			res += "\tmov rsp, rbp\n";
+			res += "\tpop rbp\n";
+			res += "\tret\n\n";
 			return;
 		}
 
@@ -547,7 +564,11 @@ int main() {
 
 【備忘録】
 program    = statement*
-statement  = expr ";"
+statement    = expr ";"
+				| "if" "(" expr ")" stmt ("else" stmt)?
+				| "while" "(" expr ")" stmt
+				| "for" "(" expr? ";" expr? ";" expr? ")" stmt
+				| ...
 expr       = assign
 assign     = equality ("=" equality)*
 equality   = relational ("==" relational | "!=" relational)*
