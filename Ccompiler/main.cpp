@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <list>
 #include <algorithm>
+#include <variant>
 #include "magic_enum/include/magic_enum.hpp"
 
 #define Debug(var) std::cout << var << "\n"
@@ -18,6 +19,12 @@
 template<class T>
 using Ptr = std::shared_ptr<T>;
 using namespace magic_enum;
+
+/*前方宣言(必要なら)*/
+
+
+/*----------------*/
+
 
 enum class TOKENTYPE {
 	NUMBER,
@@ -42,6 +49,7 @@ enum class NODETYPE {
 	RETURN,// return
 	LOCAL_VAR,
 	NUMBER,
+	BLOCK,// {}
 	NONE
 };
 
@@ -65,15 +73,12 @@ public:
 	NODETYPE type;
 	Ptr<Node> rhs;
 	Ptr<Node> lhs;
-	std::optional<int> num; //葉ノードが整数の場合には数字を持つ
-	std::optional<int> offset; //葉ノードがローカル変数のときにはオフセットを持つ
+	struct { int num, offset; std::vector<Ptr<Node>> statements; } data;//数字のノードならint、変数のノードならオフセットを保持、などのノードの種類によって定まるプロパティを保持するクラス
 
 	Node() {
 		type = NODETYPE::NONE;
 		rhs = nullptr;
 		lhs = nullptr;
-		num = std::nullopt;
-		offset = std::nullopt;
 	}
 
 };
@@ -86,14 +91,14 @@ public:
 
 
 //グローバル変数
-std::string src = "hoge = 3; fuga = hoge * 4; return fuga;";
-std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";" };
+std::string src = "{hoge = 2 * 3 + 4; return hoge + 4;}";
+std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";", "{", "}" };
 std::vector<std::string> keywords = { "int", "for", "return" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
-std::vector<Ptr<Node>> statements;
+Ptr<Node> program;
 std::string assembly_code = "";
-std::list<LocalVar> local_vars;
+std::list<LocalVar> local_var_table;
 
 
 namespace Utility {
@@ -110,17 +115,17 @@ namespace Utility {
 	//完全二分木の描画 PrintBinaryTree(root, 0)で使う
 	void PrintBinaryTree(Ptr<Node> node, int space) {
 
-		constexpr int COUNT = 7;
+		constexpr int count = 7;
 		if (node == nullptr)return;
 
-		space += COUNT;
+		space += count;
 
 		PrintBinaryTree(node->rhs, space);
 
 		std::cout << "\n";
-		for (int i = COUNT; i < space; ++i)std::cout << " ";
+		for (int i = count; i < space; ++i)std::cout << " ";
 
-		if (node->type == NODETYPE::NUMBER)std::cout << node->num.value() << "\n";
+		if (node->type == NODETYPE::NUMBER)std::cout << node->data.num << "\n";
 		else std::cout << enum_name(node->type) << "\n";
 
 		PrintBinaryTree(node->lhs, space);
@@ -202,20 +207,20 @@ void TokenizeTest() {
 
 void Parse() {
 
-	size_t pos = 0; //今何番目のトークンを参照しているのか。
+	size_t token_pos = 0; //今何番目のトークンを参照しているのか。
 	auto ConsumeByString = [&](std::string str)->bool {
-		if (pos >= tokens.size())return false;
-		if (tokens[pos].string == str) {
-			++pos;
+		if (token_pos >= tokens.size())return false;
+		if (tokens[token_pos].string == str) {
+			++token_pos;
 			return true;
 		}
 		return false;
 	};
 
 	auto ConsumeByType = [&](TOKENTYPE type)->bool {
-		if (pos >= tokens.size())return false;
-		if (tokens[pos].type == type) {
-			++pos;
+		if (token_pos >= tokens.size())return false;
+		if (tokens[token_pos].type == type) {
+			++token_pos;
 			return true;
 		}
 		return false;
@@ -231,7 +236,7 @@ void Parse() {
 
 	auto MakeNum = [](int num)->Ptr<Node> {
 		Ptr<Node> node = std::make_shared<Node>();
-		node->num = num;
+		node->data.num = num;
 		node->type = NODETYPE::NUMBER;
 		return node;
 	};
@@ -241,26 +246,26 @@ void Parse() {
 		Ptr<Node> node = std::make_shared<Node>();
 
 		//既にこの変数が登録されているかどうかを調べる
-		auto find_res = std::find_if(local_vars.begin(), local_vars.end(), [&](LocalVar var) {return var.name == identifier; });
+		auto find_res = std::find_if(local_var_table.begin(), local_var_table.end(), [&](LocalVar var) {return var.name == identifier; });
 
-		if (find_res == local_vars.end()) {
-			
+		if (find_res == local_var_table.end()) {
+
 			//新しくこの変数をlocal_varsに追加する
 			LocalVar tmp;
 			tmp.name = identifier;
 			//最初に登録する変数のオフセットは8bytes
-			if (local_vars.size() == 0) {
+			if (local_var_table.size() == 0) {
 				tmp.offset = 8;
 			}
 			else {
-				tmp.offset = local_vars.back().offset + 8;
+				tmp.offset = local_var_table.back().offset + 8;
 			}
-			node->offset = tmp.offset;
-			local_vars.push_back(tmp);
+			node->data.offset = tmp.offset;
+			local_var_table.push_back(tmp);
 
 		}
 		else {
-			node->offset = find_res->offset;
+			node->data.offset = find_res->offset;
 		}
 
 		node->type = NODETYPE::LOCAL_VAR;
@@ -270,7 +275,7 @@ void Parse() {
 
 
 	//以下はそれぞれ前方宣言されている必要があるのでstd::functionを使う
-	std::function<Ptr<Node>(void)> Statement, Expr, Assign, Equality, Relational, Add, Mul, Unary, Primary;
+	std::function<Ptr<Node>(void)> Block, Statement, Expr, Assign, Equality, Relational, Add, Mul, Unary, Primary;
 
 	Statement = [&]()->Ptr<Node> {
 
@@ -368,21 +373,31 @@ void Parse() {
 			return node;
 		}
 
-		if (tokens[pos].type == TOKENTYPE::IDENTIFIER) {
-			return MakeLocalVar(tokens[pos++].string);
+		if (tokens[token_pos].type == TOKENTYPE::IDENTIFIER) {
+			return MakeLocalVar(tokens[token_pos++].string);
 		}
 
-		assert(tokens[pos].type == TOKENTYPE::NUMBER);
-		return MakeNum(std::stoi(tokens[pos++].string)); //値を返したあとにposをインクリメント
+		assert(tokens[token_pos].type == TOKENTYPE::NUMBER);
+		return MakeNum(std::stoi(tokens[token_pos++].string)); //値を返したあとにposをインクリメント
 
 	};
 
-	auto Program = [&]()->void {
+	Block = [&]()->Ptr<Node> {
+		assert(ConsumeByString("{"));
 
-		while (pos < tokens.size()) {
+		Ptr<Node> node = std::make_shared<Node>();
+		node->type = NODETYPE::BLOCK;
+
+		while(!ConsumeByString("}")) {
 			Ptr<Node> tmp = Statement();
-			statements.push_back(tmp);
+			node->data.statements.push_back(tmp);
 		}
+
+		return node;
+	};
+
+	auto Program = [&]()->void {
+		program = Block();
 	};
 
 	Program();
@@ -391,7 +406,7 @@ void Parse() {
 
 void ParseTest() {
 
-	Utility::PrintBinaryTree(statements[1], 0); //抽象構文木の出力
+	Utility::PrintBinaryTree(program->data.statements[0], 0); //抽象構文木の出力
 
 }
 
@@ -401,7 +416,7 @@ void GenerateAssembly() {
 
 	res += "#Prologue\n";
 	res += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, ";
-	res += std::to_string(local_vars.size() * 8);
+	res += std::to_string(local_var_table.size() * 8);
 	res += "\n\n\n\n";
 
 
@@ -412,7 +427,7 @@ void GenerateAssembly() {
 
 		res += "\tmov rax, rbp\n";
 		res += "\tsub rax, ";
-		res += std::to_string(node->offset.value());
+		res += std::to_string(node->data.offset);
 		res += "\n";
 		res += "\tpush rax\n\n";
 
@@ -423,9 +438,15 @@ void GenerateAssembly() {
 	std::function<void(Ptr<Node>)> Recursive = [&](Ptr<Node> node)->void {
 
 		switch (node->type) {
+		case NODETYPE::BLOCK:
+			for (auto i = 0; i < node->data.statements.size(); ++i) {
+				Recursive(node->data.statements[i]);
+				res += "\tpop rax\n\n";
+			}
+			return;
 		case NODETYPE::NUMBER:
 			res += "\tpush ";
-			res += std::to_string(node->num.value());
+			res += std::to_string(node->data.num);
 			res += "\n";
 			return;
 
@@ -510,12 +531,9 @@ void GenerateAssembly() {
 
 	};
 
-	size_t statement_num = statements.size();
-	for (size_t i = 0; i < statement_num; ++i) {
-		Recursive(statements[i]);
-		res += "\tpop rax\n\n";
-	}
+	Recursive(program);
 
+	res += "#Epilogue\n";
 	res += "\tmov rsp, rbp\n";
 	res += "\tpop rbp\n";
 	res += "\tret\n";
@@ -563,12 +581,9 @@ int main() {
 /*
 
 【備忘録】
-program    = statement*
-statement    = expr ";"
-				| "if" "(" expr ")" stmt ("else" stmt)?
-				| "while" "(" expr ")" stmt
-				| "for" "(" expr? ";" expr? ";" expr? ")" stmt
-				| ...
+program    = block
+block      = "{" statement* "}"
+statement    = expr ";" | "return" expr ";"
 expr       = assign
 assign     = equality ("=" equality)*
 equality   = relational ("==" relational | "!=" relational)*

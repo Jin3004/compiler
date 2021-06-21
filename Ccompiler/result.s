@@ -4,7 +4,7 @@ main:
 #Prologue
 	push rbp
 	mov rbp, rsp
-	sub rsp, 16
+	sub rsp, 8
 
 
 
@@ -12,17 +12,27 @@ main:
 	sub rax, 8
 	push rax
 
+	push 2
 	push 3
+	pop rdi
+	pop rax
+	imul rax, rdi
+
+	push rax
+
+	push 4
+	pop rdi
+	pop rax
+	add rax, rdi
+
+	push rax
+
 	pop rdi
 	pop rax
 	mov [rax], rdi
 	push rdi
 
 	pop rax
-
-	mov rax, rbp
-	sub rax, 16
-	push rax
 
 	mov rax, rbp
 	sub rax, 8
@@ -35,23 +45,8 @@ main:
 	push 4
 	pop rdi
 	pop rax
-	imul rax, rdi
+	add rax, rdi
 
-	push rax
-
-	pop rdi
-	pop rax
-	mov [rax], rdi
-	push rdi
-
-	pop rax
-
-	mov rax, rbp
-	sub rax, 16
-	push rax
-
-	pop rax
-	mov rax, [rax]
 	push rax
 
 	pop rax
@@ -61,6 +56,7 @@ main:
 
 	pop rax
 
+#Epilogue
 	mov rsp, rbp
 	pop rbp
 	ret
