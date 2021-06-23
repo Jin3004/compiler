@@ -13,20 +13,6 @@ main:
 	push rax
 
 	push 2
-	push 3
-	pop rdi
-	pop rax
-	imul rax, rdi
-
-	push rax
-
-	push 4
-	pop rdi
-	pop rax
-	add rax, rdi
-
-	push rax
-
 	pop rdi
 	pop rax
 	mov [rax], rdi
@@ -42,18 +28,23 @@ main:
 	mov rax, [rax]
 	push rax
 
-	push 4
+	push 3
 	pop rdi
 	pop rax
-	add rax, rdi
+	cmp rax, rdi
+	sete al
+	movzb rax, al
 
 	push rax
 
 	pop rax
-	mov rsp, rbp
-	pop rbp
-	ret
-
+	cmp rax, 0
+	je .L1
+	push 3
+	jmp .L2
+.L1:
+	push 4
+.L2:
 	pop rax
 
 #Epilogue

@@ -50,6 +50,8 @@ enum class NODETYPE {
 	LOCAL_VAR,
 	NUMBER,
 	BLOCK,// {}
+	IF,
+	WHILE,
 	NONE
 };
 
@@ -71,9 +73,14 @@ public:
 class Node {
 public:
 	NODETYPE type;
-	Ptr<Node> rhs;
 	Ptr<Node> lhs;
-	struct { int num, offset; std::vector<Ptr<Node>> statements; } data;//数字のノードならint、変数のノードならオフセットを保持、などのノードの種類によって定まるプロパティを保持するクラス
+	Ptr<Node> rhs;
+	struct NodeTypeTrait{ 
+		int num = 0, offset = 0; 
+		std::vector<Ptr<Node>> statements = {}; 
+		Ptr<Node> else_statement = nullptr;
+	};
+	NodeTypeTrait data;//数字のノードならint、変数のノードならオフセットを保持、などのノードの種類によって定まるプロパティを保持するクラス
 
 	Node() {
 		type = NODETYPE::NONE;
@@ -91,7 +98,7 @@ public:
 
 
 //グローバル変数
-std::string src = "{hoge = 2 * 3 + 4; return hoge + 4;}";
+std::string src = "{hoge = 2; if(hoge == 3)3; else 4;}";
 std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";", "{", "}" };
 std::vector<std::string> keywords = { "int", "for", "return" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
@@ -279,14 +286,57 @@ void Parse() {
 
 	Statement = [&]()->Ptr<Node> {
 
-		Ptr<Node> node = nullptr;
+		if (ConsumeByString("if")) {
+			
+			//if文の実装
+
+			Ptr<Node> node = std::make_shared<Node>();
+			node->type = NODETYPE::IF;
+			assert(ConsumeByString("("));
+			node->lhs = Expr();
+			assert(ConsumeByString(")"));
+			node->rhs = Statement();
+
+			//else文の実装
+			if (ConsumeByString("else")) {
+				node->data.else_statement = Statement();
+			}
+
+			return node;
+		}
+
+		if (ConsumeByString("while")) {
+			
+			Ptr<Node> node = std::make_shared<Node>();
+			node->type = NODETYPE::WHILE;
+			assert(ConsumeByString("("));
+			node->lhs = Expr();
+			assert(ConsumeByString(")"));
+			node->rhs = Statement();
+			return node;
+
+		}
+
+		//ブロックの実装
+		if (ConsumeByString("{")) {
+			Ptr<Node> node = std::make_shared<Node>();
+			node->type = NODETYPE::BLOCK;
+			while (!ConsumeByString("}")) {
+				node->data.statements.push_back(Statement());
+			}
+			return node;
+		}
+
+		//return文の実装
 		if (ConsumeByString("return")) {
-			node = std::make_shared<Node>();
+			Ptr<Node> node = std::make_shared<Node>();
 			node->type = NODETYPE::RETURN;
 			node->rhs = Expr();
+			assert(ConsumeByString(";"));
+			return node;
 		}
-		else node = Expr();
 
+		Ptr<Node> node = Expr();
 		assert(ConsumeByString(";"));
 		return node;
 
@@ -397,7 +447,7 @@ void Parse() {
 	};
 
 	auto Program = [&]()->void {
-		program = Block();
+		program = Statement();
 	};
 
 	Program();
@@ -419,6 +469,8 @@ void GenerateAssembly() {
 	res += std::to_string(local_var_table.size() * 8);
 	res += "\n\n\n\n";
 
+	std::function<void(Ptr<Node>)> Recursive;
+
 
 	//ノードが変数の場合、その変数のアドレスをプッシュする
 	auto ReferToVar = [&](Ptr<Node> node)->void {
@@ -433,9 +485,47 @@ void GenerateAssembly() {
 
 	};
 
+	auto IfImplement = [&](Ptr<Node> node)->void {
 
+		static size_t label_count = 1; //ラベルにユニークな値を与える
 
-	std::function<void(Ptr<Node>)> Recursive = [&](Ptr<Node> node)->void {
+		assert(node->type == NODETYPE::IF);
+		Recursive(node->lhs);
+		//この段階でスタックトップに条件式の結果が入っている
+		res += "\tpop rax\n";
+		res += "\tcmp rax, 0\n";
+		res += "\tje ";
+		
+		std::string label1 = ".L" + std::to_string(label_count);
+		++label_count;
+
+		res += label1;
+		res += "\n";
+
+		Recursive(node->rhs);
+
+		if (node->data.else_statement == nullptr) {
+			res += label1;
+			res += ":\n";
+		}
+		else {
+			std::string label2 = ".L" + std::to_string(label_count);
+			++label_count;
+			res += "\tjmp ";
+			res += label2;
+			res += "\n";
+			res += label1;
+			res += ":\n";
+
+			Recursive(node->data.else_statement);
+
+			res += label2;
+			res += ":\n";
+		}
+
+	};
+
+	Recursive = [&](Ptr<Node> node)->void {
 
 		switch (node->type) {
 		case NODETYPE::BLOCK:
@@ -474,6 +564,10 @@ void GenerateAssembly() {
 			res += "\tmov rsp, rbp\n";
 			res += "\tpop rbp\n";
 			res += "\tret\n\n";
+			return;
+
+		case NODETYPE::IF:
+			IfImplement(node);
 			return;
 		}
 
@@ -571,7 +665,7 @@ int main() {
 	Parse();
 	//ParseTest();
 	GenerateAssembly();
-	//GenerateAssemblyTest();
+	GenerateAssemblyTest();
 	Assemble();
 	std::cout << Run();
 
@@ -581,9 +675,8 @@ int main() {
 /*
 
 【備忘録】
-program    = block
-block      = "{" statement* "}"
-statement    = expr ";" | "return" expr ";"
+program    = statement*
+statement    = expr ";" | "return" expr ";" | "if" "(" expr ")" statement ("else" statement)* | "while" "(" expr ")" statement | "for" "(" expr? ";" expr? ";" ")" statement | "{" statement* "}"
 expr       = assign
 assign     = equality ("=" equality)*
 equality   = relational ("==" relational | "!=" relational)*
