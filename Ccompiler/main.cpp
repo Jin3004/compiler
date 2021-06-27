@@ -73,19 +73,13 @@ public:
 class Node {
 public:
 	NODETYPE type;
-	Ptr<Node> lhs;
-	Ptr<Node> rhs;
-	struct NodeTypeTrait{ 
-		int num = 0, offset = 0; 
-		std::vector<Ptr<Node>> statements = {}; 
-		Ptr<Node> else_statement = nullptr;
-	};
-	NodeTypeTrait data;//数字のノードならint、変数のノードならオフセットを保持、などのノードの種類によって定まるプロパティを保持するクラス
+	std::vector<Ptr<Node>> child;
+	int num, offset;//numはノードが数字リテラルだったときに、offsetはノードが変数だったときに使う
 
 	Node() {
+		num = 0;
+		offset = 0;
 		type = NODETYPE::NONE;
-		rhs = nullptr;
-		lhs = nullptr;
 	}
 
 };
@@ -98,7 +92,7 @@ public:
 
 
 //グローバル変数
-std::string src = "{hoge = 2; if(hoge == 3)3; else 4;}";
+std::string src = "";
 std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";", "{", "}" };
 std::vector<std::string> keywords = { "int", "for", "return" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
@@ -119,6 +113,8 @@ namespace Utility {
 		return false;
 	}
 
+	/*
+
 	//完全二分木の描画 PrintBinaryTree(root, 0)で使う
 	void PrintBinaryTree(Ptr<Node> node, int space) {
 
@@ -127,7 +123,7 @@ namespace Utility {
 
 		space += count;
 
-		PrintBinaryTree(node->rhs, space);
+		PrintBinaryTree(node->, space);
 
 		std::cout << "\n";
 		for (int i = count; i < space; ++i)std::cout << " ";
@@ -138,7 +134,20 @@ namespace Utility {
 		PrintBinaryTree(node->lhs, space);
 
 	}
+	*/
+	
+}
 
+void LoadSourceFromFile(std::string file_name) {
+	std::ifstream ifs{ file_name };
+	
+	std::string tmp = "";
+	while (std::getline(ifs, tmp)) {
+		src += tmp;
+		src += "\n";
+	}
+
+	ifs.close();
 }
 
 void Tokenize() {
@@ -233,17 +242,18 @@ void Parse() {
 		return false;
 	};
 
-	auto MakeNode = [](NODETYPE type, Ptr<Node> lhs, Ptr<Node> rhs)->Ptr<Node> {
+	//演算子の場合子供が必ず２つなのでそれ用の関数オブジェクトを作っておく[0] -> 左辺, [1] -> 右辺
+	auto MakeBinaryNode = [](NODETYPE type, Ptr<Node> lhs, Ptr<Node> rhs)->Ptr<Node> {
 		Ptr<Node> node = std::make_shared<Node>();
 		node->type = type;
-		node->lhs = lhs;
-		node->rhs = rhs;
+		node->child.push_back(lhs);
+		node->child.push_back(rhs);
 		return node;
 	};
 
 	auto MakeNum = [](int num)->Ptr<Node> {
 		Ptr<Node> node = std::make_shared<Node>();
-		node->data.num = num;
+		node->num = num;
 		node->type = NODETYPE::NUMBER;
 		return node;
 	};
@@ -251,6 +261,7 @@ void Parse() {
 	auto MakeLocalVar = [&](std::string identifier)->Ptr<Node> {
 
 		Ptr<Node> node = std::make_shared<Node>();
+		node->type = NODETYPE::LOCAL_VAR;
 
 		//既にこの変数が登録されているかどうかを調べる
 		auto find_res = std::find_if(local_var_table.begin(), local_var_table.end(), [&](LocalVar var) {return var.name == identifier; });
@@ -267,15 +278,14 @@ void Parse() {
 			else {
 				tmp.offset = local_var_table.back().offset + 8;
 			}
-			node->data.offset = tmp.offset;
+			node->offset = tmp.offset;
 			local_var_table.push_back(tmp);
 
 		}
 		else {
-			node->data.offset = find_res->offset;
+			node->offset = find_res->offset;
 		}
 
-		node->type = NODETYPE::LOCAL_VAR;
 		return node;
 
 	};
@@ -286,33 +296,39 @@ void Parse() {
 
 	Statement = [&]()->Ptr<Node> {
 
+		//[0] -> 条件式, [1] -> 文, [2] -> elseだったらその文
 		if (ConsumeByString("if")) {
 			
 			//if文の実装
 
 			Ptr<Node> node = std::make_shared<Node>();
 			node->type = NODETYPE::IF;
+
 			assert(ConsumeByString("("));
-			node->lhs = Expr();
+			node->child.push_back(Expr());
 			assert(ConsumeByString(")"));
-			node->rhs = Statement();
+
+			node->child.push_back(Statement());
 
 			//else文の実装
 			if (ConsumeByString("else")) {
-				node->data.else_statement = Statement();
+				node->child.push_back(Statement());
 			}
 
 			return node;
 		}
 
+		//[0] -> 条件式, [1] -> 文
 		if (ConsumeByString("while")) {
-			
+
 			Ptr<Node> node = std::make_shared<Node>();
 			node->type = NODETYPE::WHILE;
+
 			assert(ConsumeByString("("));
-			node->lhs = Expr();
+			node->child.push_back(Expr());
 			assert(ConsumeByString(")"));
-			node->rhs = Statement();
+			
+			node->child.push_back(Statement());
 			return node;
 
 		}
@@ -321,17 +337,18 @@ void Parse() {
 		if (ConsumeByString("{")) {
 			Ptr<Node> node = std::make_shared<Node>();
 			node->type = NODETYPE::BLOCK;
+
 			while (!ConsumeByString("}")) {
-				node->data.statements.push_back(Statement());
+				node->child.push_back(Statement());
 			}
 			return node;
 		}
 
-		//return文の実装
+		//return文の実装 [0] -> returnの値
 		if (ConsumeByString("return")) {
 			Ptr<Node> node = std::make_shared<Node>();
 			node->type = NODETYPE::RETURN;
-			node->rhs = Expr();
+			node->child.push_back(Expr());
 			assert(ConsumeByString(";"));
 			return node;
 		}
@@ -351,7 +368,7 @@ void Parse() {
 		Ptr<Node> node = Equality();
 
 		for (;;) {
-			if (ConsumeByString("="))node = MakeNode(NODETYPE::ASSIGN, node, Equality());
+			if (ConsumeByString("="))node = MakeBinaryNode(NODETYPE::ASSIGN, node, Equality());
 			else return node;
 		}
 
@@ -362,8 +379,8 @@ void Parse() {
 		Ptr<Node> node = Relational();
 
 		for (;;) {
-			if (ConsumeByString("=="))node = MakeNode(NODETYPE::EQUAL, node, Relational());
-			else if (ConsumeByString("!="))node = MakeNode(NODETYPE::NOT_EQUAL, node, Relational());
+			if (ConsumeByString("=="))node = MakeBinaryNode(NODETYPE::EQUAL, node, Relational());
+			else if (ConsumeByString("!="))node = MakeBinaryNode(NODETYPE::NOT_EQUAL, node, Relational());
 			else return node;
 		}
 
@@ -374,10 +391,10 @@ void Parse() {
 		Ptr<Node> node = Add();
 
 		for (;;) {
-			if (ConsumeByString("<"))node = MakeNode(NODETYPE::LESS, node, Add());
-			else if (ConsumeByString("<="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, node, Add());
-			else if (ConsumeByString(">"))node = MakeNode(NODETYPE::LESS, Add(), node);
-			else if (ConsumeByString(">="))node = MakeNode(NODETYPE::LESS_OR_EQUAL, Add(), node);
+			if (ConsumeByString("<"))node = MakeBinaryNode(NODETYPE::LESS, node, Add());
+			else if (ConsumeByString("<="))node = MakeBinaryNode(NODETYPE::LESS_OR_EQUAL, node, Add());
+			else if (ConsumeByString(">"))node = MakeBinaryNode(NODETYPE::LESS, Add(), node);
+			else if (ConsumeByString(">="))node = MakeBinaryNode(NODETYPE::LESS_OR_EQUAL, Add(), node);
 			else return node;
 		}
 
@@ -388,8 +405,8 @@ void Parse() {
 		Ptr<Node> node = Mul();
 
 		for (;;) {
-			if (ConsumeByString("+"))node = MakeNode(NODETYPE::ADD, node, Mul());
-			else if (ConsumeByString("-"))node = MakeNode(NODETYPE::SUB, node, Mul());
+			if (ConsumeByString("+"))node = MakeBinaryNode(NODETYPE::ADD, node, Mul());
+			else if (ConsumeByString("-"))node = MakeBinaryNode(NODETYPE::SUB, node, Mul());
 			else return node;
 		}
 
@@ -400,8 +417,8 @@ void Parse() {
 		Ptr<Node> node = Primary();
 
 		for (;;) {
-			if (ConsumeByString("*"))node = MakeNode(NODETYPE::MUL, node, Unary());
-			else if (ConsumeByString("/"))node = MakeNode(NODETYPE::DIV, node, Unary());
+			if (ConsumeByString("*"))node = MakeBinaryNode(NODETYPE::MUL, node, Unary());
+			else if (ConsumeByString("/"))node = MakeBinaryNode(NODETYPE::DIV, node, Unary());
 			else return node;
 		}
 
@@ -410,7 +427,7 @@ void Parse() {
 	Unary = [&]()->Ptr<Node> {
 
 		if (ConsumeByString("+"))return Primary();
-		if (ConsumeByString("-"))return MakeNode(NODETYPE::SUB, MakeNum(0), Primary());
+		if (ConsumeByString("-"))return MakeBinaryNode(NODETYPE::SUB, MakeNum(0), Primary());
 		return Primary();
 
 	};
@@ -432,20 +449,6 @@ void Parse() {
 
 	};
 
-	Block = [&]()->Ptr<Node> {
-		assert(ConsumeByString("{"));
-
-		Ptr<Node> node = std::make_shared<Node>();
-		node->type = NODETYPE::BLOCK;
-
-		while(!ConsumeByString("}")) {
-			Ptr<Node> tmp = Statement();
-			node->data.statements.push_back(tmp);
-		}
-
-		return node;
-	};
-
 	auto Program = [&]()->void {
 		program = Statement();
 	};
@@ -456,12 +459,13 @@ void Parse() {
 
 void ParseTest() {
 
-	Utility::PrintBinaryTree(program->data.statements[0], 0); //抽象構文木の出力
+	//Utility::PrintBinaryTree(program->data.statements[0], 0); //抽象構文木の出力
 
 }
 
 void GenerateAssembly() {
 
+	static int label_count = 0;
 	std::string res = ".intel_syntax noprefix\n.global main\nmain:\n";
 
 	res += "#Prologue\n";
@@ -471,6 +475,10 @@ void GenerateAssembly() {
 
 	std::function<void(Ptr<Node>)> Recursive;
 
+	auto MakeLabel = [&](int count)->std::string {
+		std::string str = ".L" + std::to_string(count);
+		return str;
+	};
 
 	//ノードが変数の場合、その変数のアドレスをプッシュする
 	auto ReferToVar = [&](Ptr<Node> node)->void {
@@ -479,7 +487,7 @@ void GenerateAssembly() {
 
 		res += "\tmov rax, rbp\n";
 		res += "\tsub rax, ";
-		res += std::to_string(node->data.offset);
+		res += std::to_string(node->offset);
 		res += "\n";
 		res += "\tpush rax\n\n";
 
@@ -487,41 +495,46 @@ void GenerateAssembly() {
 
 	auto IfImplement = [&](Ptr<Node> node)->void {
 
-		static size_t label_count = 1; //ラベルにユニークな値を与える
-
 		assert(node->type == NODETYPE::IF);
-		Recursive(node->lhs);
+		Recursive(node->child[0]);
 		//この段階でスタックトップに条件式の結果が入っている
 		res += "\tpop rax\n";
 		res += "\tcmp rax, 0\n";
 		res += "\tje ";
 		
-		std::string label1 = ".L" + std::to_string(label_count);
 		++label_count;
+		std::string label1 = MakeLabel(label_count);
 
-		res += label1;
-		res += "\n";
-
-		Recursive(node->rhs);
-
-		if (node->data.else_statement == nullptr) {
-			res += label1;
-			res += ":\n";
+		res += (label1 + "\n");
+		Recursive(node->child[1]);
+		
+		//elseじゃなかったら
+		if (node->child.size() != 3) {
+			res += (label1 + ":\n");
 		}
 		else {
-			std::string label2 = ".L" + std::to_string(label_count);
 			++label_count;
+			std::string label2 = MakeLabel(label_count);
 			res += "\tjmp ";
-			res += label2;
-			res += "\n";
-			res += label1;
-			res += ":\n";
-
-			Recursive(node->data.else_statement);
-
-			res += label2;
-			res += ":\n";
+			res += (label2 + "\n");
+			res += (label1 + ":\n");
+			Recursive(node->child[2]);
+			res += (label2 + ":\n");
 		}
+
+	};
+
+	auto WhileImplement = [&](Ptr<Node> node) {
+
+		++label_count;
+		std::string label1 = MakeLabel(label_count);
+		++label_count;
+		std::string label2 = MakeLabel(label_count);
+
+		res += label1;
+		Recursive(node->child[0]);
+		res += "\tpop rax\n";
+		res += "\tcmp rax, 0\n";
 
 	};
 
@@ -529,14 +542,15 @@ void GenerateAssembly() {
 
 		switch (node->type) {
 		case NODETYPE::BLOCK:
-			for (auto i = 0; i < node->data.statements.size(); ++i) {
-				Recursive(node->data.statements[i]);
-				res += "\tpop rax\n\n";
+			for (auto i = 0; i < node->child.size(); ++i) {
+				Recursive(node->child[i]);
+				//res += "\tpop rax\n\n";
 			}
 			return;
+
 		case NODETYPE::NUMBER:
 			res += "\tpush ";
-			res += std::to_string(node->data.num);
+			res += std::to_string(node->num);
 			res += "\n";
 			return;
 
@@ -549,8 +563,8 @@ void GenerateAssembly() {
 			return;
 
 		case NODETYPE::ASSIGN:
-			ReferToVar(node->lhs);
-			Recursive(node->rhs);
+			ReferToVar(node->child[0]);
+			Recursive(node->child[1]);
 			//上の段階で変数のメモリアドレスと右辺値がプッシュされている
 			res += "\tpop rdi\n";
 			res += "\tpop rax\n";
@@ -559,7 +573,7 @@ void GenerateAssembly() {
 			return;
 
 		case NODETYPE::RETURN:
-			Recursive(node->rhs);
+			Recursive(node->child[0]);
 			res += "\tpop rax\n";
 			res += "\tmov rsp, rbp\n";
 			res += "\tpop rbp\n";
@@ -571,8 +585,10 @@ void GenerateAssembly() {
 			return;
 		}
 
-		Recursive(node->lhs);
-		Recursive(node->rhs);
+		//これより下は数値計算
+
+		Recursive(node->child[0]);
+		Recursive(node->child[1]);
 
 		res += "\tpop rdi\n";
 		res += "\tpop rax\n";
@@ -598,45 +614,59 @@ void GenerateAssembly() {
 		case NODETYPE::EQUAL:
 			res += "\tcmp rax, rdi\n";
 			res += "\tsete al\n";
-			res += "\tmovzb rax, al\n\n";
+			res += "\tmovzb rax, al\n";
+			res += "\tpush rax\n\n";
 			break;
 
 		case NODETYPE::NOT_EQUAL:
 			res += "\tcmp rax, rdi\n";
 			res += "\tsetne al\n";
-			res += "\tmovzb rax, al\n\n";
+			res += "\tmovzb rax, al\n";
+			res += "\tpush rax\n\n";
 			break;
 
 		case NODETYPE::LESS:
 			res += "\tcmp rax, rdi\n";
 			res += "\tsetl al\n";
-			res += "\tmovzb rax, al\n\n";
+			res += "\tmovzb rax, al\n";
+			res += "\tpush rax\n\n";
 			break;
 
 		case NODETYPE::LESS_OR_EQUAL:
 			res += "\tcmp rax, rdi\n";
 			res += "\tsetle al\n";
-			res += "\tmovzb rax, al\n\n";
+			res += "\tmovzb rax, al\n";
+			res += "\tpush rax\n\n";
 			break;
 
 		}
 
-		res += "\tpush rax\n\n";
-
 	};
 
 	Recursive(program);
-
-	res += "#Epilogue\n";
-	res += "\tmov rsp, rbp\n";
-	res += "\tpop rbp\n";
-	res += "\tret\n";
 
 	assembly_code = res;
 }
 
 void GenerateAssemblyTest() {
 	Debug(assembly_code);
+}
+
+void RunAssemblyForTest() {
+
+	{
+
+		int res = system("wsl cc -o test test.s");
+		if (res != 0)Debug("Assembling didn't go well.");
+
+	}
+
+	{
+
+		int res = system("wsl ./test");
+		Debug(res);
+	}
+
 }
 
 void Assemble() {
@@ -648,26 +678,28 @@ void Assemble() {
 
 	//result.sをバイナリファイルに変換する
 	int res = system("wsl cc -o result result.s");
-	if (res != 0)Debug("Assembling didn't go well.\n");
+	if (res != 0)Debug("Assembling didn't go well.");
 
 }
 
 //生成された実行ファイルを実行し、終了コードを返す
-int Run() {
+void Run() {
 	int res = system("wsl ./result");
-	return res;
+	Debug(res);
 }
 
 int main() {
 
+	LoadSourceFromFile("input.jim");
 	Tokenize();
 	//TokenizeTest();
 	Parse();
 	//ParseTest();
 	GenerateAssembly();
-	GenerateAssemblyTest();
+	//GenerateAssemblyTest();
 	Assemble();
-	std::cout << Run();
+	Run();
+	//RunAssemblyForTest();
 
 }
 
