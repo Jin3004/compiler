@@ -468,10 +468,14 @@ void GenerateAssembly() {
 	static int label_count = 0;
 	std::string res = ".intel_syntax noprefix\n.global main\nmain:\n";
 
+	//プロローグの出力
+
 	res += "#Prologue\n";
 	res += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, ";
 	res += std::to_string(local_var_table.size() * 8);
 	res += "\n\n\n\n";
+
+	//
 
 	std::function<void(Ptr<Node>)> Recursive;
 
@@ -531,10 +535,18 @@ void GenerateAssembly() {
 		++label_count;
 		std::string label2 = MakeLabel(label_count);
 
-		res += label1;
+		res += (label1 + ":\n");
+
 		Recursive(node->child[0]);
+		
 		res += "\tpop rax\n";
 		res += "\tcmp rax, 0\n";
+		res += ("\tje " + label2 + "\n");
+
+		Recursive(node->child[1]);
+
+		res += ("\tjmp " + label1 + "\n");
+		res += (label2 + ":\n");
 
 	};
 
@@ -544,7 +556,6 @@ void GenerateAssembly() {
 		case NODETYPE::BLOCK:
 			for (auto i = 0; i < node->child.size(); ++i) {
 				Recursive(node->child[i]);
-				//res += "\tpop rax\n\n";
 			}
 			return;
 
@@ -583,6 +594,10 @@ void GenerateAssembly() {
 		case NODETYPE::IF:
 			IfImplement(node);
 			return;
+
+		case NODETYPE::WHILE:
+			WhileImplement(node);
+			return;
 		}
 
 		//これより下は数値計算
@@ -595,7 +610,7 @@ void GenerateAssembly() {
 
 		switch (node->type) {
 		case NODETYPE::ADD:
-			res += "\tadd rax, rdi\n\n";
+			res += "\tadd rax, rdi\n";
 			break;
 
 		case NODETYPE::SUB:
@@ -640,6 +655,8 @@ void GenerateAssembly() {
 			break;
 
 		}
+
+		res += "\tpush rax\n";
 
 	};
 
@@ -690,7 +707,7 @@ void Run() {
 
 int main() {
 
-	LoadSourceFromFile("input.jim");
+	LoadSourceFromFile("input.c");
 	Tokenize();
 	//TokenizeTest();
 	Parse();
