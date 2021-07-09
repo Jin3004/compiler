@@ -52,6 +52,7 @@ enum class NODETYPE {
 	BLOCK,// {}
 	IF,
 	WHILE,
+	FOR,
 	NONE
 };
 
@@ -135,12 +136,12 @@ namespace Utility {
 
 	}
 	*/
-	
+
 }
 
 void LoadSourceFromFile(std::string file_name) {
 	std::ifstream ifs{ file_name };
-	
+
 	std::string tmp = "";
 	while (std::getline(ifs, tmp)) {
 		src += tmp;
@@ -298,7 +299,7 @@ void Parse() {
 
 		//[0] -> èåèéÆ, [1] -> ï∂, [2] -> elseÇæÇ¡ÇΩÇÁÇªÇÃï∂
 		if (ConsumeByString("if")) {
-			
+
 			//ifï∂ÇÃé¿ëï
 
 			Ptr<Node> node = std::make_shared<Node>();
@@ -316,6 +317,7 @@ void Parse() {
 			}
 
 			return node;
+
 		}
 
 		//[0] -> èåèéÆ, [1] -> ï∂
@@ -327,8 +329,37 @@ void Parse() {
 			assert(ConsumeByString("("));
 			node->child.push_back(Expr());
 			assert(ConsumeByString(")"));
-			
+
 			node->child.push_back(Statement());
+			return node;
+
+		}
+
+		if (ConsumeByString("for")) {
+
+			Ptr<Node> node = std::make_shared<Node>();
+			node->child.resize(4, nullptr);
+			node->type = NODETYPE::FOR;
+
+			assert(ConsumeByString("("));
+
+			if (!ConsumeByString(";")) {
+				node->child[0] = Expr();
+				ConsumeByString(";");
+			}
+
+			if (!ConsumeByString(";")) {
+				node->child[1] = Expr();
+				ConsumeByString(";");
+			}
+
+			if (!ConsumeByString(")")) {
+				node->child[2] = Expr();
+				ConsumeByString(")");
+			}
+
+			node->child[3] = Statement();
+
 			return node;
 
 		}
@@ -497,6 +528,8 @@ void GenerateAssembly() {
 
 	};
 
+	//êßå‰ç\ï∂ÇÃé¿ëï
+
 	auto IfImplement = [&](Ptr<Node> node)->void {
 
 		assert(node->type == NODETYPE::IF);
@@ -505,13 +538,13 @@ void GenerateAssembly() {
 		res += "\tpop rax\n";
 		res += "\tcmp rax, 0\n";
 		res += "\tje ";
-		
+
 		++label_count;
 		std::string label1 = MakeLabel(label_count);
 
 		res += (label1 + "\n");
 		Recursive(node->child[1]);
-		
+
 		//elseÇ∂Ç·Ç»Ç©Ç¡ÇΩÇÁ
 		if (node->child.size() != 3) {
 			res += (label1 + ":\n");
@@ -538,7 +571,7 @@ void GenerateAssembly() {
 		res += (label1 + ":\n");
 
 		Recursive(node->child[0]);
-		
+
 		res += "\tpop rax\n";
 		res += "\tcmp rax, 0\n";
 		res += ("\tje " + label2 + "\n");
@@ -549,6 +582,32 @@ void GenerateAssembly() {
 		res += (label2 + ":\n");
 
 	};
+
+	auto ForImplement = [&](Ptr<Node> node) {
+
+		if (node->child[0] != nullptr)Recursive(node->child[0]);
+		++label_count;
+		std::string label1 = MakeLabel(label_count);
+		++label_count;
+		std::string label2 = MakeLabel(label_count);
+
+		res += (label1 + ":\n");
+
+		if (node->child[1] != nullptr)Recursive(node->child[1]);
+
+		res += "\tpop rax\n";
+		res += "\tcmp rax, 0\n";
+		res += ("\tje " + label2 + "\n");
+
+		Recursive(node->child[3]);
+		if (node->child[2] != nullptr)Recursive(node->child[2]);
+
+		res += ("\tjmp " + label1 + "\n");
+		res += (label2 + ":\n");
+
+	};
+
+	//
 
 	Recursive = [&](Ptr<Node> node)->void {
 
@@ -598,6 +657,11 @@ void GenerateAssembly() {
 		case NODETYPE::WHILE:
 			WhileImplement(node);
 			return;
+
+		case NODETYPE::FOR:
+			ForImplement(node);
+			return;
+
 		}
 
 		//Ç±ÇÍÇÊÇËâ∫ÇÕêîílåvéZ
