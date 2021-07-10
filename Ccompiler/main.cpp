@@ -54,6 +54,7 @@ enum class NODETYPE {
 	WHILE,
 	FOR,
 	FUNCTION_CALL,// 関数呼び出し
+	FUNCTION_DEFINITION,//関数定義
 	NONE
 };
 
@@ -72,27 +73,30 @@ public:
 	}
 };
 
-class Node {
-public:
-	NODETYPE type;
-	std::vector<Ptr<Node>> child;
-	int num, offset;//numはノードが数字リテラルだったときに、offsetはノードが変数だったときに使う
-	std::string function_name; //関数呼び出し用
-
-	Node() {
-		num = 0;
-		offset = 0;
-		type = NODETYPE::NONE;
-	}
-
-};
-
-class LocalVar {
+class LocalVarData {
 public:
 	std::string name = ""; //変数名
 	int offset = 0; //RBPからのオフセット
 };
 
+
+class Node {
+public:
+	NODETYPE type;
+	std::vector<Ptr<Node>> data;//子ノードの格納する配列
+
+	std::string function_name;
+	int num;
+	size_t offset, arg_size, allocated_size;
+
+	Node() {
+		num = 0;
+		offset = 0;
+		arg_size = 0;
+		allocated_size = 0;
+		type = NODETYPE::NONE;
+	}
+};
 
 //グローバル変数
 std::string src = "";
@@ -100,9 +104,9 @@ std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "
 std::vector<std::string> keywords = { "int", "for", "return" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
-Ptr<Node> program;
+std::vector<Ptr<Node>> program;
 std::string assembly_code = "";
-std::list<LocalVar> local_var_table;
+std::list<LocalVarData> local_var_table;
 
 
 namespace Utility {
@@ -249,8 +253,8 @@ void Parse() {
 	auto MakeBinaryNode = [](NODETYPE type, Ptr<Node> lhs, Ptr<Node> rhs)->Ptr<Node> {
 		Ptr<Node> node = std::make_shared<Node>();
 		node->type = type;
-		node->child.push_back(lhs);
-		node->child.push_back(rhs);
+		node->data.push_back(lhs);
+		node->data.push_back(rhs);
 		return node;
 	};
 
@@ -261,48 +265,44 @@ void Parse() {
 		return node;
 	};
 
-	auto MakeLocalVarNode = [&](std::string identifier)->Ptr<Node> {
-
-		Ptr<Node> node = std::make_shared<Node>();
-		node->type = NODETYPE::LOCAL_VAR;
-
-		//既にこの変数が登録されているかどうかを調べる
-		auto find_res = std::find_if(local_var_table.begin(), local_var_table.end(), [&](LocalVar var) {return var.name == identifier; });
-
-		if (find_res == local_var_table.end()) {
-
-			//新しくこの変数をlocal_varsに追加する
-			LocalVar tmp;
-			tmp.name = identifier;
-			//最初に登録する変数のオフセットは8bytes
-			if (local_var_table.size() == 0) {
-				tmp.offset = 8;
-			}
-			else {
-				tmp.offset = local_var_table.back().offset + 8;
-			}
-			node->offset = tmp.offset;
-			local_var_table.push_back(tmp);
-
-		}
-		else {
-			node->offset = find_res->offset;
-		}
-
-		return node;
-
-	};
-
 	auto MakeFunctionCallNode = [&](std::string identifier)->Ptr<Node> {
 		Ptr<Node> node = std::make_shared<Node>();
-		node->type = NODETYPE::FUNCTION_CALL;
 		node->function_name = identifier;
+		node->type = NODETYPE::FUNCTION_CALL;
 		return node;
 	};
 
 
 	//以下はそれぞれ前方宣言されている必要があるのでstd::functionを使う
-	std::function<Ptr<Node>(void)> Block, Statement, Expr, Assign, Equality, Relational, Add, Mul, Unary, Primary;
+	std::function<Ptr<Node>(void)> FunctionDefinition, Statement, Expr, Assign, Equality, Relational, Add, Mul, Unary, Primary, Lvalue;
+
+	FunctionDefinition = [&]()->Ptr<Node> {
+
+		Ptr<Node> node = std::make_shared<Node>();
+		node->type = NODETYPE::FUNCTION_DEFINITION;
+		assert(tokens[token_pos].type == TOKENTYPE::IDENTIFIER);
+		node->function_name = tokens[token_pos++].string;//関数名の処理	
+
+		//引数の読み込み
+		assert(ConsumeByString("("));
+		if (!ConsumeByString(")")) {
+			while (true) {
+				node->data.push_back(Lvalue());
+				++node->arg_size;
+				if (ConsumeByString(")"))break;
+				else assert(ConsumeByString(","));
+			}
+		}
+
+		//ブロックの読み込み
+		assert(ConsumeByString("{"));
+		while (!ConsumeByString("}")) {
+			node->data.push_back(Statement());
+		}
+
+		return node;
+
+	};
 
 	Statement = [&]()->Ptr<Node> {
 
@@ -315,14 +315,14 @@ void Parse() {
 			node->type = NODETYPE::IF;
 
 			assert(ConsumeByString("("));
-			node->child.push_back(Expr());
+			node->data.push_back(Expr());
 			assert(ConsumeByString(")"));
 
-			node->child.push_back(Statement());
+			node->data.push_back(Statement());
 
 			//else文の実装
 			if (ConsumeByString("else")) {
-				node->child.push_back(Statement());
+				node->data.push_back(Statement());
 			}
 
 			return node;
@@ -336,10 +336,10 @@ void Parse() {
 			node->type = NODETYPE::WHILE;
 
 			assert(ConsumeByString("("));
-			node->child.push_back(Expr());
+			node->data.push_back(Expr());
 			assert(ConsumeByString(")"));
 
-			node->child.push_back(Statement());
+			node->data.push_back(Statement());
 			return node;
 
 		}
@@ -347,27 +347,27 @@ void Parse() {
 		if (ConsumeByString("for")) {
 
 			Ptr<Node> node = std::make_shared<Node>();
-			node->child.resize(4, nullptr);
+			node->data.resize(4, nullptr);
 			node->type = NODETYPE::FOR;
 
 			assert(ConsumeByString("("));
 
 			if (!ConsumeByString(";")) {
-				node->child[0] = Expr();
+				node->data[0] = Expr();
 				ConsumeByString(";");
 			}
 
 			if (!ConsumeByString(";")) {
-				node->child[1] = Expr();
+				node->data[1] = Expr();
 				ConsumeByString(";");
 			}
 
 			if (!ConsumeByString(")")) {
-				node->child[2] = Expr();
+				node->data[2] = Expr();
 				ConsumeByString(")");
 			}
 
-			node->child[3] = Statement();
+			node->data[3] = Statement();
 
 			return node;
 
@@ -379,7 +379,7 @@ void Parse() {
 			node->type = NODETYPE::BLOCK;
 
 			while (!ConsumeByString("}")) {
-				node->child.push_back(Statement());
+				node->data.push_back(Statement());
 			}
 			return node;
 		}
@@ -388,7 +388,7 @@ void Parse() {
 		if (ConsumeByString("return")) {
 			Ptr<Node> node = std::make_shared<Node>();
 			node->type = NODETYPE::RETURN;
-			node->child.push_back(Expr());
+			node->data.push_back(Expr());
 			assert(ConsumeByString(";"));
 			return node;
 		}
@@ -481,26 +481,26 @@ void Parse() {
 		}
 
 		if (tokens[token_pos].type == TOKENTYPE::IDENTIFIER) {
-			
+
 			Ptr<Node> node = nullptr;
 
 			//もし識別子の次に(があったらそれは関数呼び出し
 			if (tokens[token_pos + 1].string == "(") {
-				
+
 				node = MakeFunctionCallNode(tokens[token_pos++].string);
 				assert(ConsumeByString("("));
 				//もし引数があったら引数の読み込み
 				if (!ConsumeByString(")")) {
 					while (true) {
-						node->child.push_back(Expr());
+						node->data.push_back(Expr());
 						if (ConsumeByString(")"))break;
-						else ConsumeByString(",");
+						else assert(ConsumeByString(","));
 					}
 				}
 
 			}//でなければ変数
 			else {
-				node = MakeLocalVarNode(tokens[token_pos++].string);
+				node = Lvalue();
 			}
 
 			return node;
@@ -512,11 +512,38 @@ void Parse() {
 
 	};
 
-	auto Program = [&]()->void {
-		program = Statement();
+	//変数
+	Lvalue = [&]()->Ptr<Node> {
+
+		Ptr<Node> node = std::make_shared<Node>();
+		node->type = NODETYPE::LOCAL_VAR;
+		assert(tokens[token_pos].type == TOKENTYPE::IDENTIFIER);
+		std::string var_name = tokens[token_pos++].string;
+
+		auto find_res = std::find_if(local_var_table.begin(), local_var_table.end(), [&](LocalVarData var) {return var.name == var_name; });
+		if (find_res == local_var_table.end()) {
+			
+			LocalVarData tmp;
+			tmp.name = var_name;
+			if (local_var_table.size() == 0)tmp.offset = 8;
+			else tmp.offset = local_var_table.back().offset + 8;
+
+			node->offset = tmp.offset;
+			local_var_table.push_back(tmp);
+		}
+		else {
+			node->offset = find_res->offset;
+		}
+
+		return node;
+
 	};
 
-	Program();
+	while (token_pos < tokens.size()) {
+		program.push_back(FunctionDefinition());
+		program.back()->allocated_size = local_var_table.size() * 8;
+		local_var_table = {};//関数が変わるごとに変数テーブルをクリアする	
+	}
 
 }
 
@@ -529,20 +556,20 @@ void ParseTest() {
 void GenerateAssembly() {
 
 	static int label_count = 0;
-	std::string res = ".intel_syntax noprefix\n.global main\nmain:\n";
-
-	//プロローグの出力
-
-	res += "#Prologue\n";
-	res += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, ";
-	res += std::to_string(local_var_table.size() * 8);
-	res += "\n\n\n\n";
-
-	//
+	std::string res = ".intel_syntax noprefix\n.global main\n";
 
 	std::function<void(Ptr<Node>)> Recursive;
 
-	auto MakeLabel = [&](int count)->std::string {
+	auto MakePrologue = [](int bytes)->std::string {
+		std::string prologue;
+		prologue += "\n#Prologue\n";
+		prologue += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, ";
+		prologue += std::to_string(bytes);
+		prologue += "\n#End of Prologue\n\n";
+		return prologue;
+	};
+
+	auto MakeLabel = [](int count)->std::string {
 		std::string str = ".L" + std::to_string(count);
 		return str;
 	};
@@ -565,7 +592,7 @@ void GenerateAssembly() {
 	auto IfImplement = [&](Ptr<Node> node)->void {
 
 		assert(node->type == NODETYPE::IF);
-		Recursive(node->child[0]);
+		Recursive(node->data[0]);
 		//この段階でスタックトップに条件式の結果が入っている
 		res += "\tpop rax\n";
 		res += "\tcmp rax, 0\n";
@@ -575,10 +602,10 @@ void GenerateAssembly() {
 		std::string label1 = MakeLabel(label_count);
 
 		res += (label1 + "\n");
-		Recursive(node->child[1]);
+		Recursive(node->data[1]);
 
 		//elseじゃなかったら
-		if (node->child.size() != 3) {
+		if (node->data.size() != 3) {
 			res += (label1 + ":\n");
 		}
 		else {
@@ -587,7 +614,7 @@ void GenerateAssembly() {
 			res += "\tjmp ";
 			res += (label2 + "\n");
 			res += (label1 + ":\n");
-			Recursive(node->child[2]);
+			Recursive(node->data[2]);
 			res += (label2 + ":\n");
 		}
 
@@ -602,13 +629,13 @@ void GenerateAssembly() {
 
 		res += (label1 + ":\n");
 
-		Recursive(node->child[0]);
+		Recursive(node->data[0]);
 
 		res += "\tpop rax\n";
 		res += "\tcmp rax, 0\n";
 		res += ("\tje " + label2 + "\n");
 
-		Recursive(node->child[1]);
+		Recursive(node->data[1]);
 
 		res += ("\tjmp " + label1 + "\n");
 		res += (label2 + ":\n");
@@ -617,7 +644,7 @@ void GenerateAssembly() {
 
 	auto ForImplement = [&](Ptr<Node> node) {
 
-		if (node->child[0] != nullptr)Recursive(node->child[0]);
+		if (node->data[0] != nullptr)Recursive(node->data[0]);
 		++label_count;
 		std::string label1 = MakeLabel(label_count);
 		++label_count;
@@ -625,14 +652,14 @@ void GenerateAssembly() {
 
 		res += (label1 + ":\n");
 
-		if (node->child[1] != nullptr)Recursive(node->child[1]);
+		if (node->data[1] != nullptr)Recursive(node->data[1]);
 
 		res += "\tpop rax\n";
 		res += "\tcmp rax, 0\n";
 		res += ("\tje " + label2 + "\n");
 
-		Recursive(node->child[3]);
-		if (node->child[2] != nullptr)Recursive(node->child[2]);
+		Recursive(node->data[3]);
+		if (node->data[2] != nullptr)Recursive(node->data[2]);
 
 		res += ("\tjmp " + label1 + "\n");
 		res += (label2 + ":\n");
@@ -645,26 +672,42 @@ void GenerateAssembly() {
 
 	auto FunctionCallImplement = [&](Ptr<Node> node) {
 
-		auto arg_size = node->child.size();
+		auto arg_size = node->data.size();
 		assert(arg_size <= 6);//引数は6つまで受け付ける
 		static std::array<std::string, 6> arg_registers = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };//引数用のレジスターの名前を保持
 		for (size_t i = 0; i < arg_size; ++i) {
-			Recursive(node->child[i]);//引数の値を評価
+			Recursive(node->data[i]);//引数の値を評価
 			res += "\tpop rax\n";
-			res += ("\tmov " + arg_registers[i] + " ,rax\n");
+			res += ("\tmov " + arg_registers[i] + ", rax\n");
 		}
 		res += ("\tcall " + node->function_name + "\n");
-		
+
 	};
 
+	//
+
+	//関数定義の実装
+
+	auto FunctionDefinitionImplement = [&](Ptr<Node> node) {
+
+		res += (node->function_name + ":\n");
+		res += MakePrologue(node->allocated_size);
+		for (size_t i = node->arg_size; i < node->data.size(); ++i)Recursive(node->data[i]);
+
+	};
+	
 	//
 
 	Recursive = [&](Ptr<Node> node)->void {
 
 		switch (node->type) {
+		case NODETYPE::FUNCTION_DEFINITION:
+			FunctionDefinitionImplement(node);
+			return;
+
 		case NODETYPE::BLOCK:
-			for (auto i = 0; i < node->child.size(); ++i) {
-				Recursive(node->child[i]);
+			for (auto i = 0; i < node->data.size(); ++i) {
+				Recursive(node->data[i]);
 			}
 			return;
 
@@ -683,8 +726,8 @@ void GenerateAssembly() {
 			return;
 
 		case NODETYPE::ASSIGN:
-			ReferToVar(node->child[0]);
-			Recursive(node->child[1]);
+			ReferToVar(node->data[0]);
+			Recursive(node->data[1]);
 			//上の段階で変数のメモリアドレスと右辺値がプッシュされている
 			res += "\tpop rdi\n";
 			res += "\tpop rax\n";
@@ -693,11 +736,13 @@ void GenerateAssembly() {
 			return;
 
 		case NODETYPE::RETURN:
-			Recursive(node->child[0]);
+			res += "\n#Epilogue\n";
+			Recursive(node->data[0]);
 			res += "\tpop rax\n";
 			res += "\tmov rsp, rbp\n";
 			res += "\tpop rbp\n";
-			res += "\tret\n\n";
+			res += "\tret\n";
+			res += "#End of Epilogue\n\n";
 			return;
 
 		case NODETYPE::IF:
@@ -720,8 +765,8 @@ void GenerateAssembly() {
 
 		//これより下は数値計算
 
-		Recursive(node->child[0]);
-		Recursive(node->child[1]);
+		Recursive(node->data[0]);
+		Recursive(node->data[1]);
 
 		res += "\tpop rdi\n";
 		res += "\tpop rax\n";
@@ -774,7 +819,9 @@ void GenerateAssembly() {
 
 	};
 
-	Recursive(program);
+	for (auto itr = program.begin(); itr != program.end(); ++itr) {
+		Recursive(*itr);
+	}
 
 	assembly_code = res;
 }
@@ -808,8 +855,7 @@ void Assemble() {
 	assembly_file.close();
 
 	//result.sをバイナリファイルに変換する
-	int res = system("wsl cc -c result.s");
-	res = system("wsl cc -o result result.o hoge.o");
+	int res = system("wsl cc -o result result.s");
 	if (res != 0)Debug("Assembling didn't go well.");
 
 }
@@ -822,16 +868,16 @@ void Run() {
 
 int main() {
 
-	LoadSourceFromFile("input.c");
-	Tokenize();
+	//LoadSourceFromFile("input.c");
+	//Tokenize();
 	//TokenizeTest();
-	Parse();
+	//Parse();
 	//ParseTest();
-	GenerateAssembly();
+	//GenerateAssembly();
 	//GenerateAssemblyTest();
-	Assemble();
-	Run();
-	//RunAssemblyForTest();
+	//Assemble();
+	//Run();
+	RunAssemblyForTest();
 
 }
 
@@ -839,8 +885,8 @@ int main() {
 /*
 
 【備忘録】
-program    = statement*
-function_definition = ident "("  "{" statement* "}"
+program    = function_definition*
+function_definition = ident "(" 引数 ")" "{" statement* "}"
 statement    = expr ";" | "return" expr ";" | "if" "(" expr ")" statement ("else" statement)* | "while" "(" expr ")" statement | "for" "(" expr? ";" expr? ";" ")" statement | "{" statement* "}"
 expr       = assign
 assign     = equality ("=" equality)*
@@ -849,6 +895,7 @@ relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 add        = mul ("+" mul | "-" mul)*
 mul        = unary ("*" unary | "/" unary)*
 unary      = ("+" | "-")? primary
-primary    = num | | "(" expr ")" | identifier("(" ")")?
+primary    = num | | "(" expr ")" | identifier("(" ")")? | lvalue
+lvalue = identifier
 
 */

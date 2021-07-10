@@ -1,20 +1,44 @@
 .intel_syntax noprefix
 .global main
+func:
+
+#Prologue
+	push rbp
+	mov rbp, rsp
+	sub rsp, 8
+#End of Prologue
+
+
+#Epilogue
+	mov rax, rbp
+	sub rax, 8
+	push rax
+
+	pop rax
+	mov rax, [rax]
+	push rax
+
+	pop rax
+	mov rsp, rbp
+	pop rbp
+	ret
+#End of Epilogue
+
 main:
-    push 3
-    push 2
-    pop rdi
-    pop rax
-    add rax, rdi
-    push rax
-    pop rax
-    ret
-    
-    push 3
-    push 5
-    pop rdi
-    pop rax
-    add rax, rdi
-    push rax
-    pop rax
-    ret
+
+#Prologue
+	push rbp
+	mov rbp, rsp
+	sub rsp, 0
+#End of Prologue
+
+
+#Epilogue
+	mov rdi, 6
+	call func
+	pop rax
+	mov rsp, rbp
+	pop rbp
+	ret
+#End of Epilogue
+

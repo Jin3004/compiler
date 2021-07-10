@@ -1,4 +1,7 @@
-{
-	foo(1, 2);
-	return 0;
+func(sum, hoge) {
+	return sum;
+}
+
+main() {
+	return func(5);
 }
