@@ -8,6 +8,12 @@ main:
 
 
 
+	push 1
+	pop rax
+	mov rdi ,rax
+	push 2
+	pop rax
+	mov rsi ,rax
 	call foo
 	push 0
 	pop rax

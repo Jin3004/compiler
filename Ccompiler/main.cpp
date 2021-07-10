@@ -96,7 +96,7 @@ public:
 
 //グローバル変数
 std::string src = "";
-std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";", "{", "}" };
+std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";", "{", "}", "," };
 std::vector<std::string> keywords = { "int", "for", "return" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
@@ -486,9 +486,18 @@ void Parse() {
 
 			//もし識別子の次に(があったらそれは関数呼び出し
 			if (tokens[token_pos + 1].string == "(") {
+				
 				node = MakeFunctionCallNode(tokens[token_pos++].string);
 				assert(ConsumeByString("("));
-				assert(ConsumeByString(")"));
+				//もし引数があったら引数の読み込み
+				if (!ConsumeByString(")")) {
+					while (true) {
+						node->child.push_back(Expr());
+						if (ConsumeByString(")"))break;
+						else ConsumeByString(",");
+					}
+				}
+
 			}//でなければ変数
 			else {
 				node = MakeLocalVarNode(tokens[token_pos++].string);
@@ -632,6 +641,24 @@ void GenerateAssembly() {
 
 	//
 
+	//関数呼び出しの実装
+
+	auto FunctionCallImplement = [&](Ptr<Node> node) {
+
+		auto arg_size = node->child.size();
+		assert(arg_size <= 6);//引数は6つまで受け付ける
+		static std::array<std::string, 6> arg_registers = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };//引数用のレジスターの名前を保持
+		for (size_t i = 0; i < arg_size; ++i) {
+			Recursive(node->child[i]);//引数の値を評価
+			res += "\tpop rax\n";
+			res += ("\tmov " + arg_registers[i] + " ,rax\n");
+		}
+		res += ("\tcall " + node->function_name + "\n");
+		
+	};
+
+	//
+
 	Recursive = [&](Ptr<Node> node)->void {
 
 		switch (node->type) {
@@ -686,7 +713,7 @@ void GenerateAssembly() {
 			return;
 
 		case NODETYPE::FUNCTION_CALL:
-			res += ("\tcall " + node->function_name + "\n");
+			FunctionCallImplement(node);
 			return;
 
 		}
@@ -721,28 +748,24 @@ void GenerateAssembly() {
 			res += "\tcmp rax, rdi\n";
 			res += "\tsete al\n";
 			res += "\tmovzb rax, al\n";
-			res += "\tpush rax\n\n";
 			break;
 
 		case NODETYPE::NOT_EQUAL:
 			res += "\tcmp rax, rdi\n";
 			res += "\tsetne al\n";
 			res += "\tmovzb rax, al\n";
-			res += "\tpush rax\n\n";
 			break;
 
 		case NODETYPE::LESS:
 			res += "\tcmp rax, rdi\n";
 			res += "\tsetl al\n";
 			res += "\tmovzb rax, al\n";
-			res += "\tpush rax\n\n";
 			break;
 
 		case NODETYPE::LESS_OR_EQUAL:
 			res += "\tcmp rax, rdi\n";
 			res += "\tsetle al\n";
 			res += "\tmovzb rax, al\n";
-			res += "\tpush rax\n\n";
 			break;
 
 		}
@@ -817,6 +840,7 @@ int main() {
 
 【備忘録】
 program    = statement*
+function_definition = ident "("  "{" statement* "}"
 statement    = expr ";" | "return" expr ";" | "if" "(" expr ")" statement ("else" statement)* | "while" "(" expr ")" statement | "for" "(" expr? ";" expr? ";" ")" statement | "{" statement* "}"
 expr       = assign
 assign     = equality ("=" equality)*
