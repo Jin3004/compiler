@@ -53,6 +53,7 @@ enum class NODETYPE {
 	IF,
 	WHILE,
 	FOR,
+	FUNCTION_CALL,// 関数呼び出し
 	NONE
 };
 
@@ -76,6 +77,7 @@ public:
 	NODETYPE type;
 	std::vector<Ptr<Node>> child;
 	int num, offset;//numはノードが数字リテラルだったときに、offsetはノードが変数だったときに使う
+	std::string function_name; //関数呼び出し用
 
 	Node() {
 		num = 0;
@@ -259,7 +261,7 @@ void Parse() {
 		return node;
 	};
 
-	auto MakeLocalVar = [&](std::string identifier)->Ptr<Node> {
+	auto MakeLocalVarNode = [&](std::string identifier)->Ptr<Node> {
 
 		Ptr<Node> node = std::make_shared<Node>();
 		node->type = NODETYPE::LOCAL_VAR;
@@ -289,6 +291,13 @@ void Parse() {
 
 		return node;
 
+	};
+
+	auto MakeFunctionCallNode = [&](std::string identifier)->Ptr<Node> {
+		Ptr<Node> node = std::make_shared<Node>();
+		node->type = NODETYPE::FUNCTION_CALL;
+		node->function_name = identifier;
+		return node;
 	};
 
 
@@ -472,7 +481,21 @@ void Parse() {
 		}
 
 		if (tokens[token_pos].type == TOKENTYPE::IDENTIFIER) {
-			return MakeLocalVar(tokens[token_pos++].string);
+			
+			Ptr<Node> node = nullptr;
+
+			//もし識別子の次に(があったらそれは関数呼び出し
+			if (tokens[token_pos + 1].string == "(") {
+				node = MakeFunctionCallNode(tokens[token_pos++].string);
+				assert(ConsumeByString("("));
+				assert(ConsumeByString(")"));
+			}//でなければ変数
+			else {
+				node = MakeLocalVarNode(tokens[token_pos++].string);
+			}
+
+			return node;
+
 		}
 
 		assert(tokens[token_pos].type == TOKENTYPE::NUMBER);
@@ -662,6 +685,10 @@ void GenerateAssembly() {
 			ForImplement(node);
 			return;
 
+		case NODETYPE::FUNCTION_CALL:
+			res += ("\tcall " + node->function_name + "\n");
+			return;
+
 		}
 
 		//これより下は数値計算
@@ -758,7 +785,8 @@ void Assemble() {
 	assembly_file.close();
 
 	//result.sをバイナリファイルに変換する
-	int res = system("wsl cc -o result result.s");
+	int res = system("wsl cc -c result.s");
+	res = system("wsl cc -o result result.o hoge.o");
 	if (res != 0)Debug("Assembling didn't go well.");
 
 }
@@ -797,6 +825,6 @@ relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 add        = mul ("+" mul | "-" mul)*
 mul        = unary ("*" unary | "/" unary)*
 unary      = ("+" | "-")? primary
-primary    = num | identifier | "(" expr ")"
+primary    = num | | "(" expr ")" | identifier("(" ")")?
 
 */
