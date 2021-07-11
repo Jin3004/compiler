@@ -55,6 +55,8 @@ enum class NODETYPE {
 	FOR,
 	FUNCTION_CALL,// 関数呼び出し
 	FUNCTION_DEFINITION,//関数定義
+	ADDRESS,//&
+	DEREFRENCE,//*
 	NONE
 };
 
@@ -100,7 +102,7 @@ public:
 
 //グローバル変数
 std::string src = "";
-std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";", "{", "}", "," };
+std::vector<std::string> symbols = { "(", ")", "+", "-", "*", "/", "==", "!=", "<", "<=", ">", ">=", "!", "=", ";", "{", "}", ",", "&" };
 std::vector<std::string> keywords = { "int", "for", "return" };
 std::array<char, 3> white_space = { ' ', '\n', '\t' };
 std::vector<Token> tokens{};
@@ -454,7 +456,7 @@ void Parse() {
 
 	Mul = [&]()->Ptr<Node> {
 
-		Ptr<Node> node = Primary();
+		Ptr<Node> node = Unary();
 
 		for (;;) {
 			if (ConsumeByString("*"))node = MakeBinaryNode(NODETYPE::MUL, node, Unary());
@@ -466,6 +468,19 @@ void Parse() {
 
 	Unary = [&]()->Ptr<Node> {
 
+		if (ConsumeByString("&")) {
+			Ptr<Node> node = std::make_shared<Node>();
+			node->type = NODETYPE::ADDRESS;
+			node->data.push_back(Lvalue());
+			return node;
+		}
+		if (ConsumeByString("*")) {
+			Ptr<Node> node = std::make_shared<Node>();
+			node->type = NODETYPE::DEREFRENCE;
+			node->data.push_back(Unary());
+			return node;
+		}
+		
 		if (ConsumeByString("+"))return Primary();
 		if (ConsumeByString("-"))return MakeBinaryNode(NODETYPE::SUB, MakeNum(0), Primary());
 		return Primary();
@@ -708,6 +723,17 @@ void GenerateAssembly() {
 	Recursive = [&](Ptr<Node> node)->void {
 
 		switch (node->type) {
+		case NODETYPE::ADDRESS:
+			ReferToVar(node->data[0]);
+			return;
+
+		case NODETYPE::DEREFRENCE:
+			Recursive(node->data[0]);
+			res += "\tpop rax\n";
+			res += "\tmov rax, [rax]\n";
+			res += "\tpush rax\n";
+			return;
+
 		case NODETYPE::FUNCTION_DEFINITION:
 			FunctionDefinitionImplement(node);
 			return;
@@ -877,7 +903,7 @@ int main() {
 
 	LoadSourceFromFile("input.c");
 	Tokenize();
-	//TokenizeTest();
+	TokenizeTest();
 	Parse();
 	//ParseTest();
 	GenerateAssembly();
@@ -901,8 +927,8 @@ equality   = relational ("==" relational | "!=" relational)*
 relational = add ("<" add | "<=" add | ">" add | ">=" add)*
 add        = mul ("+" mul | "-" mul)*
 mul        = unary ("*" unary | "/" unary)*
-unary      = ("+" | "-")? primary
-primary    = num | | "(" expr ")" | identifier("(" ")")? | lvalue
+unary      = ("+" | "-")? primary | "*" lvalue | "&" lvalue
+primary    = num | "(" expr ")" | identifier("(" ")")? | lvalue
 lvalue = identifier
 
 */

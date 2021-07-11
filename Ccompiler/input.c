@@ -1,7 +1,5 @@
-func(a, b) {
-	return a + b;
-}
-
 main() {
-	return func(5, 7);
+	a = 3;
+	b = 5;
+	return *(&b + 8);
 }

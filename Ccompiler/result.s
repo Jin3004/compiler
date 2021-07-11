@@ -2,63 +2,49 @@
 .global main
 
 
-func:
-
-#Prologue
-	push rbp
-	mov rbp, rsp
-	push rdi
-	push rsi
-	sub rsp, 0
-#End of Prologue
-
-push rdi
-push rsi
-
-#Epilogue
-	mov rax, rbp
-	sub rax, 8
-	push rax
-
-	pop rax
-	mov rax, [rax]
-	push rax
-
-	mov rax, rbp
-	sub rax, 16
-	push rax
-
-	pop rax
-	mov rax, [rax]
-	push rax
-
-	pop rdi
-	pop rax
-	add rax, rdi
-	push rax
-	pop rax
-	mov rsp, rbp
-	pop rbp
-	ret
-#End of Epilogue
-
 main:
 
 #Prologue
 	push rbp
 	mov rbp, rsp
-	sub rsp, 0
+	sub rsp, 16
 #End of Prologue
+
+	mov rax, rbp
+	sub rax, 8
+	push rax
+
+	push 3
+	pop rdi
+	pop rax
+	mov [rax], rdi
+	push rdi
+
+	mov rax, rbp
+	sub rax, 16
+	push rax
+
+	push 5
+	pop rdi
+	pop rax
+	mov [rax], rdi
+	push rdi
 
 
 #Epilogue
-	push 5
+	mov rax, rbp
+	sub rax, 16
+	push rax
+
+	push 8
+	pop rdi
 	pop rax
-	mov rdi, rax
-	push 7
+	add rax, rdi
+	push rax
 	pop rax
-	mov rsi, rax
-	call func
+	mov rax, [rax]
+	push rax
+	pop rax
 	mov rsp, rbp
 	pop rbp
 	ret
