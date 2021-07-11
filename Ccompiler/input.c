@@ -1,7 +1,7 @@
-func(sum, hoge) {
-	return sum;
+func(a, b) {
+	return a + b;
 }
 
 main() {
-	return func(5);
+	return func(5, 7);
 }
