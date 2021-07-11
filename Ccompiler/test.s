@@ -5,19 +5,12 @@ func:
 #Prologue
 	push rbp
 	mov rbp, rsp
-	sub rsp, 8
+	#sub rsp, 0
 #End of Prologue
 
 
 #Epilogue
-	mov rax, rbp
-	sub rax, 8
-	push rax
-
-	pop rax
-	mov rax, [rax]
-	push rax
-
+	push 5
 	pop rax
 	mov rsp, rbp
 	pop rbp
@@ -34,9 +27,8 @@ main:
 
 
 #Epilogue
-	mov rdi, 6
 	call func
-	pop rax
+	#pop rax
 	mov rsp, rbp
 	pop rbp
 	ret

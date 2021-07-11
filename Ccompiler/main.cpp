@@ -87,12 +87,12 @@ public:
 
 	std::string function_name;
 	int num;
-	size_t offset, arg_size, allocated_size;
+	size_t offset, arg_num, allocated_size;
 
 	Node() {
 		num = 0;
 		offset = 0;
-		arg_size = 0;
+		arg_num = 0;
 		allocated_size = 0;
 		type = NODETYPE::NONE;
 	}
@@ -288,7 +288,7 @@ void Parse() {
 		if (!ConsumeByString(")")) {
 			while (true) {
 				node->data.push_back(Lvalue());
-				++node->arg_size;
+				++node->arg_num;
 				if (ConsumeByString(")"))break;
 				else assert(ConsumeByString(","));
 			}
@@ -556,15 +556,21 @@ void ParseTest() {
 void GenerateAssembly() {
 
 	static int label_count = 0;
-	std::string res = ".intel_syntax noprefix\n.global main\n";
+	static std::array<std::string, 6> arg_registers = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };//引数用のレジスターの名前を保持
+	std::string res = ".intel_syntax noprefix\n.global main\n\n\n";
 
 	std::function<void(Ptr<Node>)> Recursive;
 
-	auto MakePrologue = [](int bytes)->std::string {
+	auto MakePrologue = [](Ptr<Node> node)->std::string {
+		assert(node->type == NODETYPE::FUNCTION_DEFINITION);
 		std::string prologue;
 		prologue += "\n#Prologue\n";
-		prologue += "\tpush rbp\n\tmov rbp, rsp\n\tsub rsp, ";
-		prologue += std::to_string(bytes);
+		prologue += "\tpush rbp\n\tmov rbp, rsp\n";
+		for (size_t i = 0; i < node->arg_num; ++i) {
+			prologue += ("\tpush " + arg_registers[i] + "\n");
+		}
+		prologue += "\tsub rsp, ";
+		prologue += std::to_string(node->allocated_size - node->arg_num * 8);
 		prologue += "\n#End of Prologue\n\n";
 		return prologue;
 	};
@@ -674,7 +680,6 @@ void GenerateAssembly() {
 
 		auto arg_size = node->data.size();
 		assert(arg_size <= 6);//引数は6つまで受け付ける
-		static std::array<std::string, 6> arg_registers = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };//引数用のレジスターの名前を保持
 		for (size_t i = 0; i < arg_size; ++i) {
 			Recursive(node->data[i]);//引数の値を評価
 			res += "\tpop rax\n";
@@ -691,8 +696,10 @@ void GenerateAssembly() {
 	auto FunctionDefinitionImplement = [&](Ptr<Node> node) {
 
 		res += (node->function_name + ":\n");
-		res += MakePrologue(node->allocated_size);
-		for (size_t i = node->arg_size; i < node->data.size(); ++i)Recursive(node->data[i]);
+
+		res += MakePrologue(node);
+		for (size_t i = 0; i < node->arg_num; ++i)res += ("push " + arg_registers[i] + "\n");
+		for (size_t i = node->arg_num; i < node->data.size(); ++i)Recursive(node->data[i]);
 
 	};
 	
@@ -738,7 +745,7 @@ void GenerateAssembly() {
 		case NODETYPE::RETURN:
 			res += "\n#Epilogue\n";
 			Recursive(node->data[0]);
-			res += "\tpop rax\n";
+			if(node->data[0]->type != NODETYPE::FUNCTION_CALL)res += "\tpop rax\n";
 			res += "\tmov rsp, rbp\n";
 			res += "\tpop rbp\n";
 			res += "\tret\n";
@@ -868,16 +875,16 @@ void Run() {
 
 int main() {
 
-	//LoadSourceFromFile("input.c");
-	//Tokenize();
+	LoadSourceFromFile("input.c");
+	Tokenize();
 	//TokenizeTest();
-	//Parse();
+	Parse();
 	//ParseTest();
-	//GenerateAssembly();
+	GenerateAssembly();
 	//GenerateAssemblyTest();
-	//Assemble();
-	//Run();
-	RunAssemblyForTest();
+	Assemble();
+	Run();
+	//RunAssemblyForTest();
 
 }
 

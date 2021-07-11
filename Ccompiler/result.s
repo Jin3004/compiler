@@ -1,13 +1,19 @@
 .intel_syntax noprefix
 .global main
+
+
 func:
 
 #Prologue
 	push rbp
 	mov rbp, rsp
-	sub rsp, 8
+	push rdi
+	push rsi
+	sub rsp, 0
 #End of Prologue
 
+push rdi
+push rsi
 
 #Epilogue
 	mov rax, rbp
@@ -18,6 +24,18 @@ func:
 	mov rax, [rax]
 	push rax
 
+	mov rax, rbp
+	sub rax, 16
+	push rax
+
+	pop rax
+	mov rax, [rax]
+	push rax
+
+	pop rdi
+	pop rax
+	add rax, rdi
+	push rax
 	pop rax
 	mov rsp, rbp
 	pop rbp
@@ -37,8 +55,10 @@ main:
 	push 5
 	pop rax
 	mov rdi, rax
-	call func
+	push 7
 	pop rax
+	mov rsi, rax
+	call func
 	mov rsp, rbp
 	pop rbp
 	ret
